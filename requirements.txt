@@ -1,0 +1,10 @@
+llama-index
+llama-index-llms-anthropic
+llama-index-embeddings-huggingface
+llama-index-vector-stores-qdrant
+qdrant-client
+fastapi
+uvicorn
+python-dotenv
+sentence-transformers
+
