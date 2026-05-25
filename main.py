@@ -25,6 +25,7 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core.chat_engine.condense_plus_context import CondensePlusContextChatEngine
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
+from qdrant_client import QdrantClient, AsyncQdrantClient
 
 load_dotenv()
 
@@ -33,9 +34,10 @@ COLLECTION_NAME = "rag_documents"
 UPLOAD_DIR = Path("text_files")
 
 client = QdrantClient(url=os.getenv("QDRANT_URL", "localhost"), port=6333)
+aclient = AsyncQdrantClient(url=os.getenv("QDRANT_URL", "localhost"), port=6333)
 embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-large")
 llm = Anthropic(model="claude-sonnet-4-5", api_key=os.environ["ANTHROPIC_API_KEY"])
-vector_store = QdrantVectorStore(client=client, collection_name=COLLECTION_NAME)
+vector_store = QdrantVectorStore(client=client, aclient=aclient, collection_name=COLLECTION_NAME)
 index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embed_model)
 
 # ── Session storage (per user chat history) ──────────────────
