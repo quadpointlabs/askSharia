@@ -55,11 +55,10 @@ def delete_user_files(user_id: str):
     print(f"Deleting indexed documents for user: {user_id}")
     client, _, _, _ = _get_resources()
 
-    # LlamaIndex stores metadata nested under "metadata.*" in the Qdrant payload
     user_filter = Filter(
         must=[
             FieldCondition(
-                key="metadata.user_id",
+                key="user_id",
                 match=MatchValue(value=user_id)
             )
         ]
