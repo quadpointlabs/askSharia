@@ -2,12 +2,21 @@
 Indexer for document search using Qdrant and HuggingFace embeddings.
 '''
 
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+
+from database import get_db, User
+from auth import (
+    hash_password, verify_password,
+    create_access_token, get_current_user
+)
+
 import os
 import shutil
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File
 from indexer import delete_user_files, index_user_files, SUPPORTED_EXTENSIONS
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from llama_index.core import VectorStoreIndex, StorageContext
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
@@ -20,8 +29,9 @@ from pathlib import Path
 
 load_dotenv()
 
+# ── Setup ────────────────────────────────────────────────────
 COLLECTION_NAME = "rag_documents"
-
+UPLOAD_DIR = Path("text_files")
 
 client = QdrantClient(url=os.getenv("QDRANT_URL", "localhost"), port=6333)
 embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-large")
@@ -33,13 +43,56 @@ index = VectorStoreIndex.from_vector_store( vector_store=vector_store, embed_mod
 
 # ── Session storage (per user chat history) ──────────────────
 sessions = {}
+app = FastAPI(title="RAG Chatbot API")
 
-# ── FastAPI ──────────────────────────────────────────────────
-app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Schemas ──────────────────────────────────────────────────
+class RegisterRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
 
 class ChatRequest(BaseModel):
     question: str
 
+# ── Auth Endpoints ───────────────────────────────────────────
+@app.post("/auth/register")
+def register(req: RegisterRequest, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == req.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user = User(
+        name=req.name,
+        email=req.email,
+        hashed_password=hash_password(req.password)
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = create_access_token({"sub": user.id})
+    return {"access_token": token, "token_type": "bearer"}
+
+
+@app.post("/auth/login")
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == req.email).first()
+    if not user or not verify_password(req.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_access_token({"sub": user.id})
+    return {"access_token": token, "token_type": "bearer"}
+
+
+# ── Chat Endpoint ────────────────────────────────────────────
 def get_chat_engine(user_id: str):
     if user_id not in sessions:
         filters = Filter(
@@ -72,10 +125,11 @@ def get_chat_engine(user_id: str):
         )
     return sessions[user_id]
 
+
 @app.post("/chat/{user_id}")
-async def chat(user_id: str, req: ChatRequest):  # ← user_id from path, req from body
+def chat(req: ChatRequest, current_user: User = Depends(get_current_user)):
     try:
-        engine = get_chat_engine(user_id)
+        engine = get_chat_engine(current_user.id)
         response = engine.chat(req.question)
         return {
             "answer": str(response),
@@ -87,61 +141,57 @@ async def chat(user_id: str, req: ChatRequest):  # ← user_id from path, req fr
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/delete/{user_id}")
-async def delete_user_data(user_id: str):
-    try:
-        if user_id in sessions:
-            del sessions[user_id]
-        delete_user_files(user_id)
-        return {"message": f"Deleted data for user: {user_id}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
-
 
 # ── File Upload ───────────────────────────────────────────────
-UPLOAD_DIR = Path("text_files")
-
 @app.post("/upload/{user_id}")
-async def upload_file(user_id: str, file: UploadFile = File(...)):
-    safe_name = Path(file.filename).name
-    ext = Path(safe_name).suffix.lower()
-    if ext not in SUPPORTED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(SUPPORTED_EXTENSIONS)}"
-        )
+async def upload_file(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     try:
-       user_dir = UPLOAD_DIR / user_id
-       user_dir.mkdir(parents=True, exist_ok=True)
-
-       file_path = user_dir / safe_name
-       with open(file_path, "wb") as f:
-           shutil.copyfileobj(file.file, f)
-
-       index_user_files(user_id=user_id, file_dir=str(user_dir))
-       sessions.pop(user_id, None)
-       return {"message": f"File '{safe_name}' uploaded and indexed for user: {user_id} successfully.",
-               "user_id": user_id,
-               "file_name": safe_name
-               }
-    except HTTPException:
-        raise
+        user_dir = UPLOAD_DIR / current_user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        file_path = user_dir / file.filename
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        index_user_files(user_id=current_user.id, files_dir=str(user_dir))
+        return {
+            "message": f"File '{file.filename}' uploaded and indexed successfully",
+            "file": file.filename
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
     
 # ── List User Files ───────────────────────────────────────────
 @app.get("/files/{user_id}")
-async def list_files(user_id: str):
-    try:
-        user_dir = UPLOAD_DIR / user_id
-        if not user_dir.exists() or not user_dir.is_dir():
-            return {"user_id": user_id, "files": []}
-        
-        files = [f.name for f in user_dir.iterdir() if f.is_file()]
-        return {"user_id": user_id, "files": files}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def list_files(current_user: User = Depends(get_current_user)):
+    user_dir = UPLOAD_DIR / current_user.id
+    if not user_dir.exists():
+        return {"files": []}
+    files = [
+        {
+            "name": f.name,
+            "size": f.stat().st_size,
+            "uploaded_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat()
+        }
+        for f in user_dir.iterdir() if f.is_file()
+    ]
+    return {"files": files}
+
+
+@app.delete("/files/{filename}")
+def delete_file(filename: str, current_user: User = Depends(get_current_user)):
+    user_dir = UPLOAD_DIR / current_user.id
+    file_path = user_dir / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    file_path.unlink()
+    # Re-index remaining files
+    if any(user_dir.iterdir()):
+        index_user_files(user_id=current_user.id, files_dir=str(user_dir))
+    else:
+        delete_user_files(current_user.id)
+    return {"message": f"File '{filename}' deleted successfully"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
