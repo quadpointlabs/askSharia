@@ -92,6 +92,15 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     return {"access_token": token, "token_type": "bearer"}
 
 
+@app.get("/auth/me")
+def get_me(current_user: User = Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "name": current_user.name,
+        "email": current_user.email,
+        "created_at": current_user.created_at
+    }
+
 # ── Chat Endpoint ────────────────────────────────────────────
 def get_chat_engine(user_id: str):
     if user_id not in sessions:
