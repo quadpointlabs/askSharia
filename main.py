@@ -3,9 +3,10 @@ Indexer for document search using Qdrant and HuggingFace embeddings.
 '''
 
 import os
+import shutil
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from indexer import delete_user_files
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from indexer import delete_user_files, index_user_files, SUPPORTED_EXTENSIONS
 from pydantic import BaseModel
 from llama_index.core import VectorStoreIndex, StorageContext
 from llama_index.core.memory import ChatMemoryBuffer
@@ -15,6 +16,7 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from llama_index.core.chat_engine.condense_plus_context import CondensePlusContextChatEngine
+from pathlib import Path
 
 load_dotenv()
 
@@ -98,3 +100,48 @@ async def delete_user_data(user_id: str):
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+# ── File Upload ───────────────────────────────────────────────
+UPLOAD_DIR = Path("text_files")
+
+@app.post("/upload/{user_id}")
+async def upload_file(user_id: str, file: UploadFile = File(...)):
+    safe_name = Path(file.filename).name
+    ext = Path(safe_name).suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(SUPPORTED_EXTENSIONS)}"
+        )
+    try:
+       user_dir = UPLOAD_DIR / user_id
+       user_dir.mkdir(parents=True, exist_ok=True)
+
+       file_path = user_dir / safe_name
+       with open(file_path, "wb") as f:
+           shutil.copyfileobj(file.file, f)
+
+       index_user_files(user_id=user_id, file_dir=str(user_dir))
+       sessions.pop(user_id, None)
+       return {"message": f"File '{safe_name}' uploaded and indexed for user: {user_id} successfully.",
+               "user_id": user_id,
+               "file_name": safe_name
+               }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+# ── List User Files ───────────────────────────────────────────
+@app.get("/files/{user_id}")
+async def list_files(user_id: str):
+    try:
+        user_dir = UPLOAD_DIR / user_id
+        if not user_dir.exists() or not user_dir.is_dir():
+            return {"user_id": user_id, "files": []}
+        
+        files = [f.name for f in user_dir.iterdir() if f.is_file()]
+        return {"user_id": user_id, "files": files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
