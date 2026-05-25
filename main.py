@@ -98,7 +98,7 @@ def get_me(current_user: User = Depends(get_current_user)):
 def get_chat_engine(user_id: str):
     if user_id not in sessions:
         filters = Filter(
-            must=[FieldCondition(key="metadata.user_id", match=MatchValue(value=str(user_id)))]
+            must=[FieldCondition(key="user_id", match=MatchValue(value=str(user_id)))]
         )
         retriever = index.as_retriever(
             similarity_top_k=3,
