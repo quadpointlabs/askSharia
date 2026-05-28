@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { listFiles, uploadFile, deleteFile } from '../services/api';
 
 export default function FileManager() {
@@ -6,6 +6,9 @@ export default function FileManager() {
   const [selected, setSelected] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const dragCounter = useRef(0);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     fetchFiles();
@@ -20,20 +23,58 @@ export default function FileManager() {
     }
   };
 
-  const handleUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const uploadFiles = async (fileArray) => {
+    if (fileArray.length === 0) return;
     setUploading(true);
     setMessage('');
+    const failed = [];
     try {
-      await uploadFile(file);
-      setMessage(`✅ "${file.name}" uploaded successfully!`);
+      for (let i = 0; i < fileArray.length; i++) {
+        setMessage(`⏳ Uploading ${i + 1} of ${fileArray.length}: "${fileArray[i].name}"...`);
+        try {
+          await uploadFile(fileArray[i]);
+        } catch {
+          failed.push(fileArray[i].name);
+        }
+      }
+      if (failed.length === 0) {
+        setMessage(`✅ ${fileArray.length} file(s) uploaded successfully!`);
+      } else {
+        setMessage(`⚠️ ${fileArray.length - failed.length} uploaded, ${failed.length} failed: ${failed.join(', ')}`);
+      }
       fetchFiles();
-    } catch (err) {
-      setMessage('❌ Upload failed');
     } finally {
       setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleUpload = (e) => {
+    uploadFiles(Array.from(e.target.files));
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    dragCounter.current++;
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    dragCounter.current--;
+    if (dragCounter.current === 0) setDragOver(false);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setDragOver(false);
+    const dropped = Array.from(e.dataTransfer.files);
+    await uploadFiles(dropped);
   };
 
   const handleDelete = async () => {
@@ -65,17 +106,25 @@ export default function FileManager() {
 
   return (
     <div style={styles.container}>
+      {/* Single hidden file input shared by button and drop zone */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        onChange={handleUpload}
+        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
+        multiple
+        tabIndex={-1}
+      />
+
       <div style={styles.toolbar}>
         {/* Upload Button */}
-        <label style={styles.uploadBtn}>
-          {uploading ? '⏳ Uploading...' : '📤 Upload File'}
-          <input
-            type="file"
-            onChange={handleUpload}
-            style={{ display: 'none' }}
-            disabled={uploading}
-          />
-        </label>
+        <button
+          style={styles.uploadBtn}
+          onClick={() => fileInputRef.current.click()}
+          disabled={uploading}
+        >
+          {uploading ? '⏳ Uploading...' : '📤 Upload Files'}
+        </button>
 
         {/* Delete Button */}
         <button
@@ -91,11 +140,30 @@ export default function FileManager() {
         </button>
       </div>
 
+      {/* Drop Zone */}
+      <div
+        style={{
+          ...styles.dropZone,
+          borderColor: dragOver ? '#667eea' : '#ccc',
+          background: dragOver ? '#f0f0ff' : '#fafafa',
+        }}
+        onClick={() => fileInputRef.current.click()}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        <span style={styles.dropIcon}>☁️</span>
+        <span style={styles.dropText}>
+          {dragOver ? 'Release to upload' : 'Drag & drop files here, or click to browse'}
+        </span>
+      </div>
+
       {message && <p style={styles.message}>{message}</p>}
 
       {/* File List */}
       {files.length === 0 ? (
-        <p style={styles.empty}>No files uploaded yet. Upload your first file!</p>
+        <p style={styles.empty}>No files uploaded yet.</p>
       ) : (
         <div style={styles.fileList}>
           {files.map(file => (
@@ -150,6 +218,21 @@ const styles = {
     fontSize: 14,
     fontWeight: 'bold',
   },
+  dropZone: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: '24px 16px',
+    marginBottom: 12,
+    borderRadius: 12,
+    border: '2px dashed #ccc',
+    cursor: 'pointer',
+    transition: 'border-color 0.15s, background 0.15s',
+  },
+  dropIcon: { fontSize: 32 },
+  dropText: { fontSize: 13, color: '#666' },
   deleteBtn: {
     padding: '8px 16px',
     borderRadius: 8,

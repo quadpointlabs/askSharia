@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getMe } from '../services/api';
+import chatIcon from '../assets/chatting.jpg';
 import ChatBox from '../components/ChatBox';
 import FileManager from '../components/FileManager';
 
@@ -34,7 +35,10 @@ export default function Dashboard() {
       {/* Sidebar */}
       <div style={styles.sidebar}>
         <div>
-          <h2 style={styles.logo}>🤖 RAG Bot</h2>
+          <h2 style={styles.logo}>
+            <img src={chatIcon} alt="bot" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', verticalAlign: 'middle', marginRight: 8 }} />
+            RAG Bot
+          </h2>
           {user && (
             <div style={styles.userInfo}>
               <div style={styles.avatar}>
@@ -80,7 +84,7 @@ export default function Dashboard() {
           <div style={styles.section}>
             <h2 style={styles.sectionTitle}>💬 Chat with your documents</h2>
             <div style={styles.chatContainer}>
-              <ChatBox />
+              {user && <ChatBox userId={user.id} />}
             </div>
           </div>
         )}

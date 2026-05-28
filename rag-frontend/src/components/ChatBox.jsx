@@ -1,17 +1,37 @@
 import { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { sendMessage } from '../services/api';
+import chatIcon from '../assets/chatting.jpg';
 
-export default function ChatBox() {
-  const [messages, setMessages] = useState([
-    { role: 'bot', text: 'Hello! Ask me anything about your documents.' }
-  ]);
+const WELCOME = { role: 'bot', text: 'Hello! Ask me anything about your documents.' };
+
+const loadHistory = (userId) => {
+  try {
+    const saved = localStorage.getItem(`chat_history_${userId}`);
+    return saved ? JSON.parse(saved) : [WELCOME];
+  } catch {
+    return [WELCOME];
+  }
+};
+
+export default function ChatBox({ userId }) {
+  const [messages, setMessages] = useState(() => loadHistory(userId));
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
 
   useEffect(() => {
+    localStorage.setItem(`chat_history_${userId}`, JSON.stringify(messages));
+  }, [messages, userId]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const handleClear = () => {
+    setMessages([WELCOME]);
+  };
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -47,7 +67,7 @@ export default function ChatBox() {
             ...styles.messageRow,
             justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
           }}>
-            {msg.role === 'bot' && <span style={styles.avatar}>🤖</span>}
+            {msg.role === 'bot' && <img src={chatIcon} alt="bot" style={styles.avatar} />}
             <div style={{
               ...styles.bubble,
               background: msg.role === 'user'
@@ -58,7 +78,31 @@ export default function ChatBox() {
                 ? '18px 18px 4px 18px'
                 : '18px 18px 18px 4px',
             }}>
-              <p style={{ margin: 0, direction: 'auto' }}>{msg.text}</p>
+              {msg.role === 'bot' ? (
+                <div style={styles.markdown}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      p: ({ children }) => <p style={{ margin: '0 0 8px 0' }}>{children}</p>,
+                      ul: ({ children }) => <ul style={{ margin: '0 0 8px 0', paddingLeft: 20 }}>{children}</ul>,
+                      ol: ({ children }) => <ol style={{ margin: '0 0 8px 0', paddingLeft: 20 }}>{children}</ol>,
+                      li: ({ children }) => <li style={{ marginBottom: 2 }}>{children}</li>,
+                      code: ({ inline, children }) =>
+                        inline
+                          ? <code style={{ background: '#e0e0e0', borderRadius: 4, padding: '1px 5px', fontFamily: 'monospace', fontSize: 13 }}>{children}</code>
+                          : <pre style={{ background: '#1e1e1e', color: '#d4d4d4', borderRadius: 8, padding: '10px 14px', overflowX: 'auto', fontSize: 13, fontFamily: 'monospace', margin: '0 0 8px 0' }}><code>{children}</code></pre>,
+                      table: ({ children }) => <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: 8 }}>{children}</table>,
+                      th: ({ children }) => <th style={{ border: '1px solid #ccc', padding: '4px 8px', background: '#e8e8e8' }}>{children}</th>,
+                      td: ({ children }) => <td style={{ border: '1px solid #ccc', padding: '4px 8px' }}>{children}</td>,
+                      blockquote: ({ children }) => <blockquote style={{ borderLeft: '3px solid #aaa', margin: '0 0 8px 0', paddingLeft: 12, color: '#666' }}>{children}</blockquote>,
+                    }}
+                  >
+                    {msg.text}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <p style={{ margin: 0, direction: 'auto' }}>{msg.text}</p>
+              )}
               {msg.sources && msg.sources.length > 0 && (
                 <p style={styles.sources}>
                   📎 {msg.sources.join(', ')}
@@ -71,7 +115,7 @@ export default function ChatBox() {
 
         {loading && (
           <div style={{ ...styles.messageRow, justifyContent: 'flex-start' }}>
-            <span style={styles.avatar}>🤖</span>
+            <img src={chatIcon} alt="bot" style={styles.avatar} />
             <div style={{ ...styles.bubble, background: '#f0f0f0' }}>
               <p style={{ margin: 0, color: '#999' }}>Thinking...</p>
             </div>
@@ -82,6 +126,13 @@ export default function ChatBox() {
 
       {/* Input */}
       <div style={styles.inputRow}>
+        <button
+          onClick={handleClear}
+          title="Clear history"
+          style={styles.clearBtn}
+        >
+          🗑️
+        </button>
         <input
           value={input}
           onChange={e => setInput(e.target.value)}
@@ -127,7 +178,10 @@ const styles = {
     gap: 8,
   },
   avatar: {
-    fontSize: 24,
+    width: 32,
+    height: 32,
+    borderRadius: '50%',
+    objectFit: 'cover',
     flexShrink: 0,
   },
   bubble: {
@@ -141,11 +195,29 @@ const styles = {
     fontSize: 11,
     opacity: 0.7,
   },
+  markdown: {
+    margin: 0,
+    lineHeight: 1.6,
+    // collapse default margins on the first/last child elements
+    // so the bubble padding is the only spacing
+    overflowX: 'auto',
+  },
   inputRow: {
     display: 'flex',
     gap: 8,
     paddingTop: 12,
     borderTop: '1px solid #eee',
+    alignItems: 'center',
+  },
+  clearBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: '50%',
+    border: '1px solid #ddd',
+    background: 'white',
+    fontSize: 16,
+    cursor: 'pointer',
+    flexShrink: 0,
   },
   input: {
     flex: 1,
