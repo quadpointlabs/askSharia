@@ -4,6 +4,7 @@ RAG Chatbot API — FastAPI entry point.
 
 from datetime import datetime
 from pathlib import Path
+from typing import List, Optional
 import os
 import shutil
 
@@ -19,6 +20,8 @@ from indexer import delete_user_files, index_user_files, SUPPORTED_EXTENSIONS
 
 from llama_index.core import VectorStoreIndex
 from llama_index.core.memory import ChatMemoryBuffer
+from llama_index.core.postprocessor.types import BaseNodePostprocessor
+from llama_index.core.schema import NodeWithScore, QueryBundle
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.anthropic import Anthropic
 from llama_index.vector_stores.qdrant import QdrantVectorStore
@@ -39,6 +42,20 @@ embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-large")
 llm = Anthropic(model="claude-sonnet-4-5", api_key=os.environ["ANTHROPIC_API_KEY"])
 vector_store = QdrantVectorStore(client=client, aclient=aclient, collection_name=COLLECTION_NAME)
 index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embed_model)
+
+# ── Citation postprocessor ───────────────────────────────────
+class NumberedSourcePostprocessor(BaseNodePostprocessor):
+    """Prepends [N] to each retrieved chunk so the LLM can cite by number."""
+
+    def _postprocess_nodes(
+        self,
+        nodes: List[NodeWithScore],
+        query_bundle: Optional[QueryBundle] = None,
+    ) -> List[NodeWithScore]:
+        for i, node in enumerate(nodes, 1):
+            node.node.text = f"[{i}]\n{node.node.text}"
+        return nodes
+
 
 # ── Session storage (per user chat history) ──────────────────
 sessions = {}
@@ -108,9 +125,14 @@ def get_chat_engine(user_id: str):
             retriever=retriever,
             memory=ChatMemoryBuffer.from_defaults(token_limit=4096),
             llm=llm,
+            node_postprocessors=[NumberedSourcePostprocessor()],
             system_prompt=(
                 "You are a helpful assistant. Answer questions ONLY using "
-                "the provided documents. If the answer is not in the documents, say: "
+                "the provided documents. Each retrieved passage is labeled [1], [2], etc. "
+                "Cite the relevant source numbers inline immediately after the information "
+                "they support, e.g. 'The policy applies to all staff [1].' "
+                "If multiple sources support the same point, cite all of them, e.g. [1][2]. "
+                "If the answer is not in the documents, say: "
                 "English: 'This information is not available in the provided documents.' "
                 "Arabic: 'هذه المعلومات غير متوفرة في الوثائق المتاحة.' "
                 "Hebrew: 'מידע זה אינו זמין במסמכים שסופקו.' "
@@ -126,10 +148,11 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
     try:
         engine = get_chat_engine(current_user.id)
         response = await engine.achat(req.question)
-        return {
-            "answer": str(response),
-            "sources": [n.metadata.get("file_name", "unknown") for n in response.source_nodes],
-        }
+        sources = [
+            {"number": i + 1, "file": n.metadata.get("file_name", "unknown")}
+            for i, n in enumerate(response.source_nodes)
+        ]
+        return {"answer": str(response), "sources": sources}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
