@@ -45,17 +45,24 @@ index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_mode
 
 # ── Citation postprocessor ───────────────────────────────────
 class NumberedSourcePostprocessor(BaseNodePostprocessor):
-    """Prepends [N] to each retrieved chunk so the LLM can cite by number."""
-
     def _postprocess_nodes(
         self,
         nodes: List[NodeWithScore],
         query_bundle: Optional[QueryBundle] = None,
     ) -> List[NodeWithScore]:
-        for i, node in enumerate(nodes, 1):
-            node.node.text = f"[{i}]\n{node.node.text}"
+        file_to_ref = {}
+        ref_num = 1
+        for node in nodes:
+            filename = node.node.metadata.get("file_name", "unknown")
+            if filename not in file_to_ref:
+                file_to_ref[filename] = ref_num
+                ref_num += 1
+            num = file_to_ref[filename]
+            node.node.metadata["source_number"] = num
+            node.node.set_content(
+                f"[{num}] (from: {filename})\n{node.node.get_content()}"
+            )
         return nodes
-
 
 # ── Session storage (per user chat history) ──────────────────
 sessions = {}
@@ -127,11 +134,10 @@ def get_chat_engine(user_id: str):
             llm=llm,
             node_postprocessors=[NumberedSourcePostprocessor()],
             system_prompt=(
-                "You are a helpful assistant. Answer questions ONLY using "
-                "the provided documents. Each retrieved passage is labeled [1], [2], etc. "
-                "Cite the relevant source numbers inline immediately after the information "
-                "they support, e.g. 'The policy applies to all staff [1].' "
-                "If multiple sources support the same point, cite all of them, e.g. [1][2]. "
+                "You are a helpful assistant. Answer ONLY using the provided documents. "
+                "Each retrieved passage is labeled with its source file. "
+                "If multiple passages come from the same file, use the same citation number for that file. "
+                "Cite inline immediately after each statement using [1], [2] format, where the number corresponds to the source file. "
                 "If the answer is not in the documents, say: "
                 "English: 'This information is not available in the provided documents.' "
                 "Arabic: 'هذه المعلومات غير متوفرة في الوثائق المتاحة.' "
@@ -144,15 +150,54 @@ def get_chat_engine(user_id: str):
 
 
 @app.post("/chat")
-async def chat(req: ChatRequest, current_user: User = Depends(get_current_user)):
+def chat(req: ChatRequest, current_user: User = Depends(get_current_user)):
     try:
         engine = get_chat_engine(current_user.id)
-        response = await engine.achat(req.question)
-        sources = [
-            {"number": i + 1, "file": n.metadata.get("file_name", "unknown")}
-            for i, n in enumerate(response.source_nodes)
-        ]
-        return {"answer": str(response), "sources": sources}
+        response = engine.chat(req.question)
+
+        # Step 1: Build file → correct reference number mapping
+        # Use the LOWEST source_number for each unique file
+        file_to_info = {}
+        for node in response.source_nodes:
+            filename = node.metadata.get("file_name", "unknown")
+            number = node.metadata.get("source_number", 1)
+            if filename not in file_to_info:
+                file_to_info[filename] = {
+                    "number": number,
+                    "file": filename,
+                    "score": round(node.score, 3) if node.score else None,
+                }
+            else:
+                # Keep lowest number for this file
+                if number < file_to_info[filename]["number"]:
+                    file_to_info[filename]["number"] = number
+
+        # Step 2: Build reverse map — wrong_number → correct_number
+        # So [2] and [3] from same file get replaced with [1]
+        wrong_to_correct = {}
+        for node in response.source_nodes:
+            filename = node.metadata.get("file_name", "unknown")
+            wrong_num = node.metadata.get("source_number")
+            correct_num = file_to_info[filename]["number"]
+            if wrong_num and wrong_num != correct_num:
+                wrong_to_correct[wrong_num] = correct_num
+
+        # Step 3: Fix inline citations in answer text
+        answer = str(response)
+        for wrong_num, correct_num in wrong_to_correct.items():
+            answer = answer.replace(f"[{wrong_num}]", f"[{correct_num}]")
+
+        # Step 4: Remove any trailing 📎 line
+        if "📎" in answer:
+            answer = answer[:answer.rfind("📎")].strip()
+
+        # Step 5: Build deduplicated sources list
+        sources = list(file_to_info.values())
+
+        return {
+            "answer": answer,
+            "sources": sources
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

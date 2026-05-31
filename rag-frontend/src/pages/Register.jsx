@@ -82,8 +82,9 @@ const styles = {
   card: {
     background: 'white',
     borderRadius: 16,
-    padding: 40,
-    width: 380,
+    padding: '32px 24px',
+    width: '90%',
+    maxWidth: 380,
     boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
   },
   title: {
@@ -106,7 +107,7 @@ const styles = {
     padding: '12px 16px',
     borderRadius: 8,
     border: '1px solid #ddd',
-    fontSize: 15,
+    fontSize: 16,
     outline: 'none',
   },
   button: {

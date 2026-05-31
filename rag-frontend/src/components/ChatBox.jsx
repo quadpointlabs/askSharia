@@ -104,9 +104,19 @@ export default function ChatBox({ userId }) {
                 <p style={{ margin: 0, direction: 'auto' }}>{msg.text}</p>
               )}
               {msg.sources && msg.sources.length > 0 && (
-                <p style={styles.sources}>
-                  📎 {msg.sources.join(', ')}
-                </p>
+                <div style={styles.sourcesContainer}>
+                <p style={styles.sourcesTitle}>📎 Sources:</p>
+                {[...new Map(msg.sources.map(s => [s.file, s])).values()].map((src, i) => (
+                <div key={i} style={styles.sourceItem}>
+                <span>[{src.number}] 📄 {src.file}</span>
+                {src.score && (
+                <span style={styles.score}>
+                {' '}· relevance: {(src.score * 100).toFixed(0)}%
+                </span>
+                )}
+                </div>
+                ))}
+                </div>
               )}
             </div>
             {msg.role === 'user' && <span style={styles.avatar}>👤</span>}
@@ -224,7 +234,7 @@ const styles = {
     padding: '12px 16px',
     borderRadius: 24,
     border: '1px solid #ddd',
-    fontSize: 14,
+    fontSize: 16,
     outline: 'none',
   },
   sendBtn: {
