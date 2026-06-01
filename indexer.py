@@ -41,6 +41,56 @@ class SmartPDFReader(BaseReader):
         return [Document(text="\n\n".join(pages_text), metadata=extra_info or {})]
 
 
+class ClaudeVisionReader(BaseReader):
+    """Uses Claude to extract text from images — much better than Tesseract for Arabic."""
+
+    def load_data(self, file, extra_info=None):
+        # Read image as base64
+        with open(file, "rb") as f:
+            image_data = base64.standard_b64encode(f.read()).decode("utf-8")
+
+        # Detect media type
+        ext = Path(file).suffix.lower()
+        media_type_map = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp"
+        }
+        media_type = media_type_map.get(ext, "image/jpeg")
+
+        # Ask Claude to extract text
+        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4096,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_data,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": "Please extract ALL text from this image exactly as it appears. "
+                                   "Preserve the original language (Arabic, Hebrew, English). "
+                                   "Do not translate or summarize — just extract the raw text."
+                        }
+                    ],
+                }
+            ],
+        )
+
+        extracted_text = message.content[0].text
+        return [Document(text=extracted_text, metadata=extra_info or {})]
+
 class ImageOCRReader(BaseReader):
     """Extracts text from image files using Tesseract OCR."""
 
@@ -61,13 +111,14 @@ _FILE_EXTRACTOR = {
     ".pptx": PptxReader(),
     ".xlsx": PandasExcelReader(),
     ".xls":  PandasExcelReader(),
-    ".jpg":  ImageOCRReader(),
-    ".jpeg": ImageOCRReader(),
-    ".png":  ImageOCRReader(),
-    ".tiff": ImageOCRReader(),
+    ".jpg":  ClaudeVisionReader(),   # ← Claude instead of Tesseract
+    ".jpeg": ClaudeVisionReader(),   # ← Claude instead of Tesseract
+    ".png":  ClaudeVisionReader(),   # ← Claude instead of Tesseract
+    ".tiff": ImageOCRReader(),       # ← Keep Tesseract for TIFF
     ".tif":  ImageOCRReader(),
     ".bmp":  ImageOCRReader(),
 }
+
 
 
 load_dotenv()
