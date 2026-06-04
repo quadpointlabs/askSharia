@@ -10,6 +10,7 @@ import shutil
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
@@ -241,6 +242,17 @@ def list_files(current_user: User = Depends(get_current_user)):
         for f in user_dir.iterdir() if f.is_file()
     ]
     return {"files": files}
+
+
+# ── Download a File ──────────────────────────────────────────
+@app.get("/files/{filename}/download")
+def download_file(filename: str, current_user: User = Depends(get_current_user)):
+    if filename != Path(filename).name:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    file_path = UPLOAD_DIR / current_user.id / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path=file_path, filename=filename, media_type="application/octet-stream")
 
 
 # ── Delete a File ─────────────────────────────────────────────

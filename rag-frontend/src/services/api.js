@@ -43,3 +43,6 @@ export const listFiles = () =>
 
 export const deleteFile = (filename) =>
   api.delete(`/files/${filename}`);
+
+export const downloadFile = (filename) =>
+  api.get(`/files/${filename}/download`, { responseType: 'blob' });

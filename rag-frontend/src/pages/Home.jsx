@@ -28,8 +28,8 @@ export default function Home() {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <img src={chatIcon} alt="RAG Chatbot" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', display: 'block', margin: '0 auto 12px' }} />
-        <h1 style={styles.title}>RAG Chatbot</h1>
+        <img src={chatIcon} alt="RAGnotebook" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', display: 'block', margin: '0 auto 12px' }} />
+        <h1 style={styles.title}>RAGnotebook</h1>
         <p style={styles.subtitle}>Your personal AI assistant</p>
 
         <form onSubmit={handleLogin} style={styles.form}>

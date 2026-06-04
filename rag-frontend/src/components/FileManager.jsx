@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { listFiles, uploadFile, deleteFile } from '../services/api';
+import { listFiles, uploadFile, deleteFile, downloadFile } from '../services/api';
 
 export default function FileManager() {
   const [files, setFiles] = useState([]);
@@ -77,6 +77,26 @@ export default function FileManager() {
     await uploadFiles(dropped);
   };
 
+  const handleDownload = async (filename) => {
+    try {
+      const res = await downloadFile(filename);
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setMessage('❌ Download failed');
+    }
+  };
+
+  const handleDownloadSelected = async () => {
+    for (const filename of selected) {
+      await handleDownload(filename);
+    }
+  };
+
   const handleDelete = async () => {
     if (selected.length === 0) return;
     if (!confirm(`Delete ${selected.length} file(s)?`)) return;
@@ -124,6 +144,19 @@ export default function FileManager() {
           disabled={uploading}
         >
           {uploading ? '⏳ Uploading...' : '📤 Upload Files'}
+        </button>
+
+        {/* Download Selected Button */}
+        <button
+          onClick={handleDownloadSelected}
+          style={{
+            ...styles.downloadBtn,
+            opacity: selected.length > 0 ? 1 : 0.4,
+            cursor: selected.length > 0 ? 'pointer' : 'not-allowed'
+          }}
+          disabled={selected.length === 0}
+        >
+          ⬇️ Download Selected ({selected.length})
         </button>
 
         {/* Delete Button */}
@@ -188,6 +221,13 @@ export default function FileManager() {
                   {formatSize(file.size)} · {new Date(file.uploaded_at).toLocaleDateString()}
                 </p>
               </div>
+              <button
+                style={styles.rowDownloadBtn}
+                title="Download"
+                onClick={e => { e.stopPropagation(); handleDownload(file.name); }}
+              >
+                ⬇️
+              </button>
               <input
                 type="checkbox"
                 checked={selected.includes(file.name)}
@@ -236,6 +276,16 @@ const styles = {
   },
   dropIcon: { fontSize: 32 },
   dropText: { fontSize: 13, color: '#666' },
+  downloadBtn: {
+    padding: '10px 16px',
+    borderRadius: 8,
+    background: '#2ed573',
+    color: 'white',
+    border: 'none',
+    fontSize: 14,
+    fontWeight: 'bold',
+    flex: '1 1 auto',
+  },
   deleteBtn: {
     padding: '10px 16px',
     borderRadius: 8,
@@ -245,6 +295,14 @@ const styles = {
     fontSize: 14,
     fontWeight: 'bold',
     flex: '1 1 auto',
+  },
+  rowDownloadBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: 18,
+    padding: '2px 4px',
+    borderRadius: 4,
   },
   message: {
     padding: '8px 12px',
