@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_URL = 'http://51.84.201.250:8001';
+// Set VITE_API_URL in .env to override.
+// Sharea: http://51.17.251.190:8001  |  QPL: http://51.84.201.250:8001
+const API_URL = import.meta.env.VITE_API_URL || 'http://51.17.251.190:8001';
 
 const api = axios.create({
   baseURL: API_URL,

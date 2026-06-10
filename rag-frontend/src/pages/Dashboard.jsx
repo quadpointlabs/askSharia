@@ -18,6 +18,7 @@ function useIsMobile() {
 export default function Dashboard() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('chat');
+  const [isUploading, setIsUploading] = useState(false);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
@@ -61,12 +62,12 @@ export default function Dashboard() {
         <div style={mobile.main}>
           {activeTab === 'chat' && (
             <div style={mobile.chatWrapper}>
-              {user && <ChatBox userId={user.id} />}
+              {user && <ChatBox userId={user.id} isUploading={isUploading} />}
             </div>
           )}
           {activeTab === 'files' && (
             <div style={mobile.filesWrapper}>
-              <FileManager />
+              <FileManager onUploadingChange={setIsUploading} />
             </div>
           )}
         </div>
@@ -147,7 +148,7 @@ export default function Dashboard() {
           <div style={styles.section}>
             <h2 style={styles.sectionTitle}>💬 Chat with your documents</h2>
             <div style={styles.chatContainer}>
-              {user && <ChatBox userId={user.id} />}
+              {user && <ChatBox userId={user.id} isUploading={isUploading} />}
             </div>
           </div>
         )}
@@ -155,7 +156,7 @@ export default function Dashboard() {
         {activeTab === 'files' && (
           <div style={styles.section}>
             <h2 style={styles.sectionTitle}>📁 My Files</h2>
-            <FileManager />
+            <FileManager onUploadingChange={setIsUploading} />
           </div>
         )}
       </div>

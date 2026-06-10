@@ -15,7 +15,7 @@ const loadHistory = (userId) => {
   }
 };
 
-export default function ChatBox({ userId }) {
+export default function ChatBox({ userId, isUploading }) {
   const [messages, setMessages] = useState(() => loadHistory(userId));
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -60,6 +60,11 @@ export default function ChatBox({ userId }) {
 
   return (
     <div style={styles.container}>
+      {isUploading && (
+        <div style={styles.uploadingBanner}>
+          ⏳ Files are being uploaded and indexed — chat will be available once complete.
+        </div>
+      )}
       {/* Messages */}
       <div style={styles.messages}>
         {messages.map((msg, i) => (
@@ -149,17 +154,17 @@ export default function ChatBox({ userId }) {
           onKeyDown={e => e.key === 'Enter' && handleSend()}
           placeholder="Ask a question... / اكتب سؤالك... / שאל שאלה..."
           style={styles.input}
-          disabled={loading}
+          disabled={loading || isUploading}
           dir="auto"
         />
         <button
           onClick={handleSend}
           style={{
             ...styles.sendBtn,
-            opacity: loading || !input.trim() ? 0.5 : 1,
-            cursor: loading || !input.trim() ? 'not-allowed' : 'pointer'
+            opacity: loading || !input.trim() || isUploading ? 0.5 : 1,
+            cursor: loading || !input.trim() || isUploading ? 'not-allowed' : 'pointer'
           }}
-          disabled={loading || !input.trim()}
+          disabled={loading || !input.trim() || isUploading}
         >
           ➤
         </button>
@@ -173,6 +178,16 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
+  },
+  uploadingBanner: {
+    padding: '8px 14px',
+    marginBottom: 8,
+    borderRadius: 8,
+    background: '#fff8e1',
+    border: '1px solid #ffe082',
+    fontSize: 13,
+    color: '#795548',
+    textAlign: 'center',
   },
   messages: {
     flex: 1,
