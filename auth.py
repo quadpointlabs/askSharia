@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
@@ -7,7 +8,11 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from database import get_db, User
 
+logger = logging.getLogger(__name__)
+
 SECRET_KEY = os.getenv("SECRET_KEY", "changethis")
+if SECRET_KEY == "changethis":
+    logger.warning("SECRET_KEY is set to the insecure default — set the SECRET_KEY environment variable")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
 

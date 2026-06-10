@@ -1,8 +1,12 @@
+import logging
+import sys
 from sqlalchemy import create_engine, Column, String, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import uuid
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./rag_users.db"
 
@@ -22,11 +26,18 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception:
+    logger.exception("Failed to initialize database schema — cannot start")
+    sys.exit(1)
 
 def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

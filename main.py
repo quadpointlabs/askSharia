@@ -5,15 +5,22 @@ RAG Chatbot API — FastAPI entry point.
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+import logging
 import os
 import shutil
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 from database import get_db, User
 from auth import hash_password, verify_password, create_access_token, get_current_user
@@ -37,12 +44,19 @@ load_dotenv()
 COLLECTION_NAME = "rag_documents"
 UPLOAD_DIR = Path("text_files")
 
-client = QdrantClient(url=os.getenv("QDRANT_URL", "localhost"), port=6333)
-aclient = AsyncQdrantClient(url=os.getenv("QDRANT_URL", "localhost"), port=6333)
-embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-large")
-llm = Anthropic(model="claude-sonnet-4-5", api_key=os.environ["ANTHROPIC_API_KEY"])
-vector_store = QdrantVectorStore(client=client, aclient=aclient, collection_name=COLLECTION_NAME)
-index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embed_model)
+try:
+    client = QdrantClient(url=os.getenv("QDRANT_URL", "localhost"), port=6333)
+    aclient = AsyncQdrantClient(url=os.getenv("QDRANT_URL", "localhost"), port=6333)
+    embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-large")
+    llm = Anthropic(model="claude-sonnet-4-5", api_key=os.environ["ANTHROPIC_API_KEY"])
+    vector_store = QdrantVectorStore(client=client, aclient=aclient, collection_name=COLLECTION_NAME)
+    index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embed_model)
+except KeyError as e:
+    logger.critical("Missing required environment variable: %s", e)
+    raise SystemExit(1)
+except Exception:
+    logger.exception("Failed to initialize server components — check Qdrant connection and API keys")
+    raise SystemExit(1)
 
 # ── Citation postprocessor ───────────────────────────────────
 class NumberedSourcePostprocessor(BaseNodePostprocessor):
@@ -76,6 +90,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "An unexpected server error occurred"})
 
 # ── Schemas ──────────────────────────────────────────────────
 class RegisterRequest(BaseModel):
@@ -199,8 +218,11 @@ def chat(req: ChatRequest, current_user: User = Depends(get_current_user)):
             "answer": answer,
             "sources": sources
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Chat error for user %s", current_user.id)
+        raise HTTPException(status_code=500, detail="Chat service error. Please try again.")
 
 
 # ── File Upload ───────────────────────────────────────────────
@@ -213,18 +235,23 @@ async def upload_file(file: UploadFile = File(...), current_user: User = Depends
             status_code=400,
             detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(SUPPORTED_EXTENSIONS)}",
         )
+    dest: Optional[Path] = None
     try:
         user_dir = UPLOAD_DIR / current_user.id
         user_dir.mkdir(parents=True, exist_ok=True)
-        with open(user_dir / safe_name, "wb") as f:
+        dest = user_dir / safe_name
+        with open(dest, "wb") as f:
             shutil.copyfileobj(file.file, f)
         index_user_files(user_id=current_user.id, file_dir=str(user_dir))
         sessions.pop(current_user.id, None)
         return {"message": f"File '{safe_name}' uploaded and indexed successfully", "file": safe_name}
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Upload/index error for user %s, file %s", current_user.id, safe_name)
+        if dest and dest.exists():
+            dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Failed to process and index the file.")
 
 
 # ── List User Files ───────────────────────────────────────────
@@ -267,11 +294,14 @@ def delete_file(filename: str, current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="File not found")
     file_path.unlink()
     sessions.pop(current_user.id, None)
-    # Always wipe user's vectors then re-index whatever remains
-    delete_user_files(current_user.id)
-    remaining = [f for f in user_dir.iterdir() if f.is_file()]
-    if remaining:
-        index_user_files(user_id=current_user.id, file_dir=str(user_dir))
+    try:
+        delete_user_files(current_user.id)
+        remaining = [f for f in user_dir.iterdir() if f.is_file()]
+        if remaining:
+            index_user_files(user_id=current_user.id, file_dir=str(user_dir))
+    except Exception:
+        logger.exception("Index update failed after deleting %s for user %s", filename, current_user.id)
+        raise HTTPException(status_code=500, detail="File deleted but index update failed. Search results may be stale.")
     return {"message": f"File '{filename}' deleted successfully"}
 
 
