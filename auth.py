@@ -6,7 +6,7 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from database import get_db, User
+from database import get_db, User, Admin
 
 logger = logging.getLogger(__name__)
 
@@ -53,3 +53,26 @@ def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+def get_current_admin(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+) -> Admin:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        admin_id: str = payload.get("admin_sub")
+        if admin_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    admin = db.query(Admin).filter(Admin.id == admin_id).first()
+    if admin is None:
+        raise credentials_exception
+    return admin

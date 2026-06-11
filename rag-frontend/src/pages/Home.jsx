@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { login } from '../services/api';
+
 import chatIcon from '../assets/chatting.jpg';
 
 export default function Home() {
@@ -55,9 +56,8 @@ export default function Home() {
           </button>
         </form>
 
-        <p style={styles.registerText}>
-          Don't have an account?{' '}
-          <Link to="/register" style={styles.link}>Register here</Link>
+        <p style={styles.adminText}>
+          <Link to="/admin/login" style={styles.adminLink}>Admin</Link>
         </p>
       </div>
     </div>
@@ -119,15 +119,13 @@ const styles = {
     fontSize: 13,
     textAlign: 'center',
   },
-  registerText: {
+  adminText: {
     textAlign: 'center',
-    marginTop: 20,
-    color: '#888',
-    fontSize: 14,
+    marginTop: 8,
   },
-  link: {
-    color: '#667eea',
+  adminLink: {
+    color: '#bbb',
     textDecoration: 'none',
-    fontWeight: 'bold',
+    fontSize: 12,
   },
 };

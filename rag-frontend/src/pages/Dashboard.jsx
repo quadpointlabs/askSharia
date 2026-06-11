@@ -48,7 +48,10 @@ export default function Dashboard() {
         <div style={mobile.header}>
           <div style={mobile.headerLeft}>
             <img src={chatIcon} alt="bot" style={mobile.headerIcon} />
-            <span style={mobile.headerTitle}>RAG Bot</span>
+            <div>
+              <span style={mobile.headerTitle}>RAG Bot</span>
+              <span style={mobile.pageLabel}>Owner Page</span>
+            </div>
           </div>
           {user && (
             <div style={mobile.headerRight}>
@@ -99,10 +102,13 @@ export default function Dashboard() {
       {/* Sidebar */}
       <div style={styles.sidebar}>
         <div>
-          <h2 style={styles.logo}>
-            <img src={chatIcon} alt="bot" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', verticalAlign: 'middle', marginRight: 8 }} />
-            RAG Bot
-          </h2>
+          <div style={{ marginBottom: 24 }}>
+            <h2 style={{ ...styles.logo, margin: '0 0 4px 0' }}>
+              <img src={chatIcon} alt="bot" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', verticalAlign: 'middle', marginRight: 8 }} />
+              RAG Bot
+            </h2>
+            <span style={styles.pageLabel}>Owner Page</span>
+          </div>
           {user && (
             <div style={styles.userInfo}>
               <div style={styles.avatar}>
@@ -196,6 +202,14 @@ const mobile = {
     color: 'white',
     fontWeight: 'bold',
     fontSize: 18,
+    display: 'block',
+  },
+  pageLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
   },
   headerRight: {
     display: 'flex',
@@ -297,6 +311,13 @@ const styles = {
   logo: {
     fontSize: 22,
     margin: '0 0 24px 0',
+  },
+  pageLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.65)',
   },
   userInfo: {
     display: 'flex',

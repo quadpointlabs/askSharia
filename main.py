@@ -22,8 +22,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from database import get_db, User
-from auth import hash_password, verify_password, create_access_token, get_current_user
+from database import get_db, User, Admin, SessionLocal, engine
+from auth import hash_password, verify_password, create_access_token, get_current_user, get_current_admin
 from indexer import delete_user_files, index_user_files, SUPPORTED_EXTENSIONS
 
 from llama_index.core import VectorStoreIndex
@@ -84,6 +84,28 @@ sessions = {}
 
 app = FastAPI(title="RAG Chatbot API")
 
+
+@app.on_event("startup")
+def startup():
+    # Add enabled column to users if it doesn't exist (one-time migration)
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT 1"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
+
+    # Seed default admin account
+    db = SessionLocal()
+    try:
+        if not db.query(Admin).first():
+            db.add(Admin(username="admin", hashed_password=hash_password("admin1234")))
+            db.commit()
+            logger.info("Default admin account created (username: admin)")
+    finally:
+        db.close()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -109,23 +131,25 @@ class LoginRequest(BaseModel):
 class ChatRequest(BaseModel):
     question: str
 
+class AdminLoginRequest(BaseModel):
+    username: str
+    password: str
+
+class AdminChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class UserStatusRequest(BaseModel):
+    enabled: bool
+
 # ── Auth Endpoints ───────────────────────────────────────────
-@app.post("/auth/register")
-def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == req.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
-    user = User(name=req.name, email=req.email, hashed_password=hash_password(req.password))
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return {"access_token": create_access_token({"sub": user.id}), "token_type": "bearer"}
-
-
 @app.post("/auth/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email).first()
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not user.enabled:
+        raise HTTPException(status_code=403, detail="Account is disabled")
     return {"access_token": create_access_token({"sub": user.id}), "token_type": "bearer"}
 
 
@@ -303,6 +327,90 @@ def delete_file(filename: str, current_user: User = Depends(get_current_user)):
         logger.exception("Index update failed after deleting %s for user %s", filename, current_user.id)
         raise HTTPException(status_code=500, detail="File deleted but index update failed. Search results may be stale.")
     return {"message": f"File '{filename}' deleted successfully"}
+
+
+# ── Admin Auth ───────────────────────────────────────────────
+@app.post("/admin/auth/login")
+def admin_login(req: AdminLoginRequest, db: Session = Depends(get_db)):
+    admin = db.query(Admin).filter(Admin.username == req.username).first()
+    if not admin or not verify_password(req.password, admin.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {"access_token": create_access_token({"admin_sub": admin.id}), "token_type": "bearer"}
+
+
+@app.post("/admin/auth/change-password")
+def admin_change_password(
+    req: AdminChangePasswordRequest,
+    current_admin: Admin = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(req.current_password, current_admin.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    current_admin.hashed_password = hash_password(req.new_password)
+    db.commit()
+    return {"message": "Password changed successfully"}
+
+
+# ── Admin Dashboard ──────────────────────────────────────────
+@app.get("/admin/stats")
+def admin_stats(current_admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    total_users = db.query(User).count()
+    total_files = (
+        sum(len(list(d.iterdir())) for d in UPLOAD_DIR.iterdir() if d.is_dir())
+        if UPLOAD_DIR.exists() else 0
+    )
+    return {
+        "total_users": total_users,
+        "total_files": total_files,
+        "total_chats": len(sessions),
+        "active_today": len(sessions),
+    }
+
+
+@app.get("/admin/users")
+def admin_list_users(current_admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return [
+        {
+            "id": u.id,
+            "name": u.name,
+            "email": u.email,
+            "enabled": u.enabled,
+            "created_at": u.created_at,
+            "role": "user",
+        }
+        for u in users
+    ]
+
+
+@app.post("/admin/users")
+def admin_create_user(
+    req: RegisterRequest,
+    current_admin: Admin = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    if db.query(User).filter(User.email == req.email).first():
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user = User(name=req.name, email=req.email, hashed_password=hash_password(req.password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "name": user.name, "email": user.email}
+
+
+@app.put("/admin/users/{user_id}/status")
+def admin_set_user_status(
+    user_id: str,
+    req: UserStatusRequest,
+    current_admin: Admin = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.enabled = req.enabled
+    db.commit()
+    return {"message": "Status updated"}
 
 
 @app.get("/health")
