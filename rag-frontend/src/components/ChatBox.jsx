@@ -15,11 +15,13 @@ const loadHistory = (userId) => {
   }
 };
 
-export default function ChatBox({ userId, isUploading }) {
+export default function ChatBox({ userId, isUploading, sendMessageFn = sendMessage, tokens, onTokenUsed }) {
   const [messages, setMessages] = useState(() => loadHistory(userId));
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
+
+  const outOfTokens = tokens !== undefined && tokens <= 0;
 
   useEffect(() => {
     localStorage.setItem(`chat_history_${userId}`, JSON.stringify(messages));
@@ -34,7 +36,7 @@ export default function ChatBox({ userId, isUploading }) {
   };
 
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || outOfTokens) return;
 
     const question = input.trim();
     setInput('');
@@ -42,17 +44,25 @@ export default function ChatBox({ userId, isUploading }) {
     setLoading(true);
 
     try {
-      const res = await sendMessage(question);
+      const res = await sendMessageFn(question);
       setMessages(prev => [...prev, {
         role: 'bot',
         text: res.data.answer,
         sources: res.data.sources
       }]);
+      if (res.data.tokens_remaining !== null && res.data.tokens_remaining !== undefined) {
+        onTokenUsed?.(res.data.tokens_remaining);
+      }
     } catch (err) {
+      const detail = err.response?.data?.detail;
+      const isOutOfTokens = err.response?.status === 402;
       setMessages(prev => [...prev, {
         role: 'bot',
-        text: '❌ Error getting response. Please try again.'
+        text: isOutOfTokens
+          ? `🪙 ${detail}`
+          : '❌ Error getting response. Please try again.'
       }]);
+      if (isOutOfTokens) onTokenUsed?.(0);
     } finally {
       setLoading(false);
     }
@@ -63,6 +73,11 @@ export default function ChatBox({ userId, isUploading }) {
       {isUploading && (
         <div style={styles.uploadingBanner}>
           ⏳ Files are being uploaded and indexed — chat will be available once complete.
+        </div>
+      )}
+      {outOfTokens && (
+        <div style={styles.noTokensBanner}>
+          🪙 No tokens remaining. Contact your owner to top up.
         </div>
       )}
       {/* Messages */}
@@ -154,17 +169,26 @@ export default function ChatBox({ userId, isUploading }) {
           onKeyDown={e => e.key === 'Enter' && handleSend()}
           placeholder="Ask a question... / اكتب سؤالك... / שאל שאלה..."
           style={styles.input}
-          disabled={loading || isUploading}
+          disabled={loading || isUploading || outOfTokens}
           dir="auto"
         />
+        {tokens !== undefined && (
+          <span style={{
+            ...styles.tokenBadge,
+            background: tokens > 20 ? '#e8f5e9' : tokens > 5 ? '#fff3e0' : '#ffebee',
+            color: tokens > 20 ? '#2e7d32' : tokens > 5 ? '#e65100' : '#c62828',
+          }}>
+            🪙 {tokens}
+          </span>
+        )}
         <button
           onClick={handleSend}
           style={{
             ...styles.sendBtn,
-            opacity: loading || !input.trim() || isUploading ? 0.5 : 1,
-            cursor: loading || !input.trim() || isUploading ? 'not-allowed' : 'pointer'
+            opacity: loading || !input.trim() || isUploading || outOfTokens ? 0.5 : 1,
+            cursor: loading || !input.trim() || isUploading || outOfTokens ? 'not-allowed' : 'pointer'
           }}
-          disabled={loading || !input.trim() || isUploading}
+          disabled={loading || !input.trim() || isUploading || outOfTokens}
         >
           ➤
         </button>
@@ -188,6 +212,24 @@ const styles = {
     fontSize: 13,
     color: '#795548',
     textAlign: 'center',
+  },
+  noTokensBanner: {
+    padding: '8px 14px',
+    marginBottom: 8,
+    borderRadius: 8,
+    background: '#ffebee',
+    border: '1px solid #ef9a9a',
+    fontSize: 13,
+    color: '#c62828',
+    textAlign: 'center',
+  },
+  tokenBadge: {
+    fontSize: 12,
+    fontWeight: '700',
+    padding: '4px 10px',
+    borderRadius: 20,
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
   messages: {
     flex: 1,

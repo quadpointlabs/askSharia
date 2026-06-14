@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { getMe } from '../services/api';
 import chatIcon from '../assets/chatting.jpg';
 import ChatBox from '../components/ChatBox';
-import FileManager from '../components/FileManager';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640);
@@ -18,7 +17,6 @@ function useIsMobile() {
 export default function Dashboard() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('chat');
-  const [isUploading, setIsUploading] = useState(false);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
@@ -50,7 +48,7 @@ export default function Dashboard() {
             <img src={chatIcon} alt="bot" style={mobile.headerIcon} />
             <div>
               <span style={mobile.headerTitle}>RAG Bot</span>
-              <span style={mobile.pageLabel}>Owner Page</span>
+              <span style={mobile.pageLabel}>User Page</span>
             </div>
           </div>
           {user && (
@@ -65,12 +63,24 @@ export default function Dashboard() {
         <div style={mobile.main}>
           {activeTab === 'chat' && (
             <div style={mobile.chatWrapper}>
-              {user && <ChatBox userId={user.id} isUploading={isUploading} />}
+              {user && (
+                <ChatBox
+                  userId={user.id}
+                  isUploading={false}
+                  tokens={user.tokens ?? 0}
+                  onTokenUsed={(remaining) => setUser(u => ({ ...u, tokens: remaining }))}
+                />
+              )}
             </div>
           )}
-          {activeTab === 'files' && (
+          {activeTab === 'tokens' && (
             <div style={mobile.filesWrapper}>
-              <FileManager onUploadingChange={setIsUploading} />
+              {user && <TokensPanel tokens={user.tokens ?? 0} />}
+            </div>
+          )}
+          {activeTab === 'pricing' && (
+            <div style={mobile.filesWrapper}>
+              <PricingPage />
             </div>
           )}
         </div>
@@ -85,11 +95,18 @@ export default function Dashboard() {
             <span style={mobile.tabLabel}>Chat</span>
           </button>
           <button
-            onClick={() => setActiveTab('files')}
-            style={{ ...mobile.tab, ...(activeTab === 'files' ? mobile.tabActive : {}) }}
+            onClick={() => setActiveTab('tokens')}
+            style={{ ...mobile.tab, ...(activeTab === 'tokens' ? mobile.tabActive : {}) }}
           >
-            <span style={mobile.tabIcon}>📁</span>
-            <span style={mobile.tabLabel}>Files</span>
+            <span style={mobile.tabIcon}>🪙</span>
+            <span style={mobile.tabLabel}>Tokens</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('pricing')}
+            style={{ ...mobile.tab, ...(activeTab === 'pricing' ? mobile.tabActive : {}) }}
+          >
+            <span style={mobile.tabIcon}>💎</span>
+            <span style={mobile.tabLabel}>Plans</span>
           </button>
         </div>
       </div>
@@ -107,7 +124,7 @@ export default function Dashboard() {
               <img src={chatIcon} alt="bot" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', verticalAlign: 'middle', marginRight: 8 }} />
               RAG Bot
             </h2>
-            <span style={styles.pageLabel}>Owner Page</span>
+            <span style={styles.pageLabel}>User Page</span>
           </div>
           {user && (
             <div style={styles.userInfo}>
@@ -124,21 +141,21 @@ export default function Dashboard() {
           <nav style={styles.nav}>
             <button
               onClick={() => setActiveTab('chat')}
-              style={{
-                ...styles.navBtn,
-                background: activeTab === 'chat' ? 'rgba(255,255,255,0.2)' : 'transparent'
-              }}
+              style={{ ...styles.navBtn, background: activeTab === 'chat' ? 'rgba(255,255,255,0.2)' : 'transparent' }}
             >
               💬 Chat
             </button>
             <button
-              onClick={() => setActiveTab('files')}
-              style={{
-                ...styles.navBtn,
-                background: activeTab === 'files' ? 'rgba(255,255,255,0.2)' : 'transparent'
-              }}
+              onClick={() => setActiveTab('tokens')}
+              style={{ ...styles.navBtn, background: activeTab === 'tokens' ? 'rgba(255,255,255,0.2)' : 'transparent' }}
             >
-              📁 My Files
+              🪙 Tokens
+            </button>
+            <button
+              onClick={() => setActiveTab('pricing')}
+              style={{ ...styles.navBtn, background: activeTab === 'pricing' ? 'rgba(255,255,255,0.2)' : 'transparent' }}
+            >
+              💎 Plans & Pricing
             </button>
           </nav>
         </div>
@@ -154,21 +171,363 @@ export default function Dashboard() {
           <div style={styles.section}>
             <h2 style={styles.sectionTitle}>💬 Chat with your documents</h2>
             <div style={styles.chatContainer}>
-              {user && <ChatBox userId={user.id} isUploading={isUploading} />}
+              {user && (
+                <ChatBox
+                  userId={user.id}
+                  isUploading={false}
+                  tokens={user.tokens ?? 0}
+                  onTokenUsed={(remaining) => setUser(u => ({ ...u, tokens: remaining }))}
+                />
+              )}
             </div>
           </div>
         )}
-
-        {activeTab === 'files' && (
+        {activeTab === 'tokens' && (
           <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>📁 My Files</h2>
-            <FileManager onUploadingChange={setIsUploading} />
+            <h2 style={styles.sectionTitle}>🪙 My Tokens</h2>
+            {user && <TokensPanel tokens={user.tokens ?? 0} />}
+          </div>
+        )}
+        {activeTab === 'pricing' && (
+          <div style={styles.section}>
+            <h2 style={styles.sectionTitle}>💎 Plans & Pricing</h2>
+            <PricingPage />
           </div>
         )}
       </div>
     </div>
   );
 }
+
+function TokensPanel({ tokens }) {
+  const FREE_GRANT = 100;
+  const used = Math.max(0, FREE_GRANT - tokens);
+  const pct = Math.max(0, Math.min(100, (tokens / FREE_GRANT) * 100));
+  const barColor = pct > 50 ? '#48bb78' : pct > 20 ? '#ed8936' : '#e53e3e';
+
+  return (
+    <div style={tp.wrap}>
+      <div style={tp.balanceCard}>
+        <div style={tp.balanceLabel}>Available Tokens</div>
+        <div style={{ ...tp.balanceNum, color: barColor }}>{tokens}</div>
+        <div style={tp.barTrack}>
+          <div style={{ ...tp.barFill, width: `${pct}%`, background: barColor }} />
+        </div>
+        <div style={tp.barMeta}>
+          <span>{used} used</span>
+          <span>{tokens} remaining</span>
+        </div>
+      </div>
+
+      <div style={tp.infoGrid}>
+        <div style={tp.infoCard}>
+          <div style={tp.infoIcon}>🎁</div>
+          <div style={tp.infoTitle}>Free Grant</div>
+          <div style={tp.infoValue}>{FREE_GRANT} tokens</div>
+          <div style={tp.infoDesc}>Credited automatically on registration</div>
+        </div>
+        <div style={tp.infoCard}>
+          <div style={tp.infoIcon}>💬</div>
+          <div style={tp.infoTitle}>Per Message</div>
+          <div style={tp.infoValue}>1 token</div>
+          <div style={tp.infoDesc}>Each chat message costs 1 token</div>
+        </div>
+        <div style={tp.infoCard}>
+          <div style={tp.infoIcon}>📦</div>
+          <div style={tp.infoTitle}>Need More?</div>
+          <div style={tp.infoValue}>Contact owner</div>
+          <div style={tp.infoDesc}>Ask your owner to top up your balance</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const PLANS = [
+  {
+    key: 'free',
+    name: 'Free',
+    price: 0,
+    tokens: 100,
+    unlimited: false,
+    reset: 'monthly',
+    color: '#667eea',
+    popular: false,
+    features: [
+      '100 tokens per month',
+      'Tokens reset on the 1st of each month',
+      'Access to all documents',
+      'Multilingual support',
+    ],
+  },
+  {
+    key: 'normal',
+    name: 'Normal',
+    price: 20,
+    tokens: 500,
+    unlimited: false,
+    reset: 'monthly',
+    color: '#38b2ac',
+    popular: true,
+    features: [
+      '500 tokens per month',
+      'Tokens reset on the 1st of each month',
+      'Access to all documents',
+      'Multilingual support',
+      'Priority support',
+    ],
+  },
+  {
+    key: 'pro',
+    name: 'Pro',
+    price: 80,
+    tokens: null,
+    unlimited: true,
+    reset: null,
+    color: '#764ba2',
+    popular: false,
+    features: [
+      'Unlimited tokens',
+      'No monthly cap',
+      'Access to all documents',
+      'Multilingual support',
+      'Priority support',
+      'Dedicated assistance',
+    ],
+  },
+];
+
+function PricingPage() {
+  return (
+    <div style={pp.wrap}>
+      <p style={pp.subtitle}>
+        Choose the plan that fits your needs. Tokens reset at the beginning of every month.
+        Contact your owner to upgrade.
+      </p>
+      <div style={pp.grid}>
+        {PLANS.map(plan => (
+          <div
+            key={plan.key}
+            style={{
+              ...pp.card,
+              borderColor: plan.popular ? plan.color : '#e8e8e8',
+              borderWidth: plan.popular ? 2 : 1,
+            }}
+          >
+            {plan.popular && (
+              <div style={{ ...pp.popularBadge, background: plan.color }}>
+                Most Popular
+              </div>
+            )}
+            <div style={{ ...pp.planIcon, background: plan.color + '18', color: plan.color }}>
+              {plan.key === 'free' ? '🌱' : plan.key === 'normal' ? '⚡' : '🚀'}
+            </div>
+            <h3 style={{ ...pp.planName, color: plan.color }}>{plan.name}</h3>
+            <div style={pp.priceRow}>
+              {plan.price === 0 ? (
+                <span style={pp.priceAmount}>Free</span>
+              ) : (
+                <>
+                  <span style={pp.priceCurrency}>$</span>
+                  <span style={pp.priceAmount}>{plan.price}</span>
+                  <span style={pp.pricePeriod}>/mo</span>
+                </>
+              )}
+            </div>
+            <div style={pp.tokenRow}>
+              <span style={{ ...pp.tokenBadge, background: plan.color + '18', color: plan.color }}>
+                🪙 {plan.unlimited ? 'Unlimited tokens' : `${plan.tokens.toLocaleString()} tokens/month`}
+              </span>
+            </div>
+            <ul style={pp.featureList}>
+              {plan.features.map((f, i) => (
+                <li key={i} style={pp.featureItem}>
+                  <span style={{ ...pp.checkIcon, color: plan.color }}>✓</span>
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <button
+              style={{
+                ...pp.ctaBtn,
+                background: plan.popular
+                  ? `linear-gradient(135deg, ${plan.color}, ${plan.color}cc)`
+                  : 'white',
+                color: plan.popular ? 'white' : plan.color,
+                border: `1.5px solid ${plan.color}`,
+              }}
+            >
+              {plan.price === 0 ? 'Current Free Plan' : `Upgrade to ${plan.name}`}
+            </button>
+          </div>
+        ))}
+      </div>
+      <p style={pp.note}>
+        To upgrade your plan, contact your owner. Tokens are deducted per message sent.
+      </p>
+    </div>
+  );
+}
+
+const pp = {
+  wrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 24,
+    maxWidth: 900,
+    width: '100%',
+  },
+  subtitle: {
+    margin: 0,
+    color: '#666',
+    fontSize: 15,
+    lineHeight: 1.6,
+  },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+    gap: 20,
+    alignItems: 'start',
+  },
+  card: {
+    background: 'white',
+    borderRadius: 16,
+    padding: '28px 24px 24px',
+    boxShadow: '0 2px 16px rgba(0,0,0,0.08)',
+    border: '1px solid #e8e8e8',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 0,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  popularBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    padding: '4px 14px',
+    borderBottomLeftRadius: 10,
+    color: 'white',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+  },
+  planIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 22,
+    marginBottom: 14,
+  },
+  planName: {
+    margin: '0 0 8px 0',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  priceRow: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 2,
+    marginBottom: 14,
+  },
+  priceCurrency: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+    marginTop: 4,
+  },
+  priceAmount: {
+    fontSize: 42,
+    fontWeight: '800',
+    color: '#1a1a2e',
+    lineHeight: 1,
+  },
+  pricePeriod: {
+    fontSize: 14,
+    color: '#999',
+    marginLeft: 2,
+  },
+  tokenRow: {
+    marginBottom: 20,
+  },
+  tokenBadge: {
+    display: 'inline-block',
+    padding: '5px 12px',
+    borderRadius: 20,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  featureList: {
+    listStyle: 'none',
+    margin: '0 0 24px 0',
+    padding: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+    flex: 1,
+  },
+  featureItem: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    fontSize: 13,
+    color: '#444',
+    lineHeight: 1.4,
+  },
+  checkIcon: {
+    fontWeight: '800',
+    fontSize: 14,
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  ctaBtn: {
+    width: '100%',
+    padding: '12px',
+    borderRadius: 10,
+    fontSize: 14,
+    fontWeight: '700',
+    cursor: 'pointer',
+    textAlign: 'center',
+    transition: 'opacity 0.15s',
+  },
+  note: {
+    margin: 0,
+    color: '#aaa',
+    fontSize: 13,
+    textAlign: 'center',
+  },
+};
+
+const tp = {
+  wrap: { display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 640 },
+  balanceCard: {
+    background: 'white',
+    borderRadius: 16,
+    padding: '28px 28px 20px',
+    boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+  },
+  balanceLabel: { fontSize: 13, color: '#888', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 },
+  balanceNum: { fontSize: 56, fontWeight: 'bold', lineHeight: 1, marginBottom: 20 },
+  barTrack: { height: 10, background: '#f0f0f0', borderRadius: 99, overflow: 'hidden', marginBottom: 8 },
+  barFill: { height: '100%', borderRadius: 99, transition: 'width 0.4s ease' },
+  barMeta: { display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#aaa' },
+  infoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 16 },
+  infoCard: {
+    background: 'white',
+    borderRadius: 12,
+    padding: '20px 16px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+    textAlign: 'center',
+  },
+  infoIcon: { fontSize: 28, marginBottom: 8 },
+  infoTitle: { fontSize: 12, fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 },
+  infoValue: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 6 },
+  infoDesc: { fontSize: 12, color: '#aaa', lineHeight: 1.4 },
+};
 
 const mobile = {
   container: {
@@ -257,7 +616,7 @@ const mobile = {
   filesWrapper: {
     flex: 1,
     overflowY: 'auto',
-    padding: '10px 12px',
+    padding: '16px 14px',
   },
   tabBar: {
     display: 'flex',
@@ -283,14 +642,8 @@ const mobile = {
     color: '#667eea',
     borderTop: '2px solid #667eea',
   },
-  tabIcon: {
-    fontSize: 22,
-    lineHeight: 1,
-  },
-  tabLabel: {
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
+  tabIcon: { fontSize: 22, lineHeight: 1 },
+  tabLabel: { fontSize: 11, fontWeight: 'bold' },
 };
 
 const styles = {

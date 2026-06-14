@@ -56,8 +56,12 @@ export default function Home() {
           </button>
         </form>
 
-        <p style={styles.adminText}>
-          <Link to="/admin/login" style={styles.adminLink}>Admin</Link>
+        <p style={styles.linkRow}>
+          Don't have an account?{' '}
+          <Link to="/register" style={styles.inlineLink}>Register</Link>
+        </p>
+        <p style={styles.ownerText}>
+          <Link to="/owner/login" style={styles.ownerLink}>Owner login</Link>
         </p>
       </div>
     </div>
@@ -119,11 +123,22 @@ const styles = {
     fontSize: 13,
     textAlign: 'center',
   },
-  adminText: {
+  linkRow: {
+    textAlign: 'center',
+    marginTop: 16,
+    fontSize: 13,
+    color: '#666',
+  },
+  inlineLink: {
+    color: '#667eea',
+    textDecoration: 'none',
+    fontWeight: 'bold',
+  },
+  ownerText: {
     textAlign: 'center',
     marginTop: 8,
   },
-  adminLink: {
+  ownerLink: {
     color: '#bbb',
     textDecoration: 'none',
     fontSize: 12,

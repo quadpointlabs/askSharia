@@ -22,8 +22,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from database import get_db, User, Admin, SessionLocal, engine
-from auth import hash_password, verify_password, create_access_token, get_current_user, get_current_admin
+from database import get_db, User, Admin, Owner, SessionLocal, engine
+from auth import hash_password, verify_password, create_access_token, get_current_user, get_current_owner, get_current_admin
 from indexer import delete_user_files, index_user_files, SUPPORTED_EXTENSIONS
 
 from llama_index.core import VectorStoreIndex
@@ -94,7 +94,12 @@ def startup():
             conn.execute(text("ALTER TABLE users ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT 1"))
             conn.commit()
         except Exception:
-            pass  # Column already exists
+            pass
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN tokens INTEGER NOT NULL DEFAULT 100"))
+            conn.commit()
+        except Exception:
+            pass
 
     # Seed default admin account
     db = SessionLocal()
@@ -142,7 +147,23 @@ class AdminChangePasswordRequest(BaseModel):
 class UserStatusRequest(BaseModel):
     enabled: bool
 
+class OwnerCreateRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
 # ── Auth Endpoints ───────────────────────────────────────────
+@app.post("/auth/register", status_code=201)
+def register(req: RegisterRequest, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == req.email).first():
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    user = User(name=req.name, email=req.email, hashed_password=hash_password(req.password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "name": user.name, "email": user.email}
+
+
 @app.post("/auth/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email).first()
@@ -159,44 +180,91 @@ def get_me(current_user: User = Depends(get_current_user)):
         "id": current_user.id,
         "name": current_user.name,
         "email": current_user.email,
+        "tokens": getattr(current_user, "tokens", 100),
         "created_at": current_user.created_at,
     }
 
+# ── Owner Auth ───────────────────────────────────────────────
+@app.post("/owner/auth/login")
+def owner_login(req: LoginRequest, db: Session = Depends(get_db)):
+    owner = db.query(Owner).filter(Owner.email == req.email).first()
+    if not owner or not verify_password(req.password, owner.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not owner.enabled:
+        raise HTTPException(status_code=403, detail="Account is disabled")
+    return {"access_token": create_access_token({"sub": owner.id}), "token_type": "bearer"}
+
+
+@app.get("/owner/auth/me")
+def owner_get_me(current_owner: Owner = Depends(get_current_owner)):
+    return {
+        "id": current_owner.id,
+        "name": current_owner.name,
+        "email": current_owner.email,
+        "created_at": current_owner.created_at,
+    }
+
+
 # ── Chat ─────────────────────────────────────────────────────
-def get_chat_engine(user_id: str):
-    if user_id not in sessions:
-        filters = Filter(
-            must=[FieldCondition(key="user_id", match=MatchValue(value=str(user_id)))]
-        )
+_SYSTEM_PROMPT = (
+    "You are a helpful assistant. Answer ONLY using the provided documents. "
+    "Each retrieved passage is labeled with its source file. "
+    "If multiple passages come from the same file, use the same citation number for that file. "
+    "Cite inline immediately after each statement using [1], [2] format, where the number corresponds to the source file. "
+    "If the answer is not in the documents, say: "
+    "English: 'This information is not available in the provided documents.' "
+    "Arabic: 'هذه المعلومات غير متوفرة في الوثائق المتاحة.' "
+    "Hebrew: 'מידע זה אינו זמין במסמכים שסופקו.' "
+    "Always respond in the same language the user used."
+)
+
+
+def get_chat_engine(cache_key: str, user_ids: list):
+    """
+    user_ids: list of user/owner IDs whose documents to include.
+    For an owner chatting, pass [owner_id].
+    For a regular user, pass all enabled owner IDs so they query the shared knowledge base.
+    """
+    if cache_key not in sessions:
+        if len(user_ids) == 1:
+            filters = Filter(
+                must=[FieldCondition(key="user_id", match=MatchValue(value=user_ids[0]))]
+            )
+        else:
+            filters = Filter(
+                should=[FieldCondition(key="user_id", match=MatchValue(value=uid)) for uid in user_ids]
+            )
         retriever = index.as_retriever(
             similarity_top_k=3,
             vector_store_kwargs={"qdrant_filters": filters},
         )
-        sessions[user_id] = CondensePlusContextChatEngine.from_defaults(
+        sessions[cache_key] = CondensePlusContextChatEngine.from_defaults(
             retriever=retriever,
             memory=ChatMemoryBuffer.from_defaults(token_limit=4096),
             llm=llm,
             node_postprocessors=[NumberedSourcePostprocessor()],
-            system_prompt=(
-                "You are a helpful assistant. Answer ONLY using the provided documents. "
-                "Each retrieved passage is labeled with its source file. "
-                "If multiple passages come from the same file, use the same citation number for that file. "
-                "Cite inline immediately after each statement using [1], [2] format, where the number corresponds to the source file. "
-                "If the answer is not in the documents, say: "
-                "English: 'This information is not available in the provided documents.' "
-                "Arabic: 'هذه المعلومات غير متوفرة في الوثائق المتاحة.' "
-                "Hebrew: 'מידע זה אינו זמין במסמכים שסופקו.' "
-                "Always respond in the same language the user used."
-            ),
+            system_prompt=_SYSTEM_PROMPT,
             verbose=False,
         )
-    return sessions[user_id]
+    return sessions[cache_key]
 
 
 @app.post("/chat")
-def chat(req: ChatRequest, current_user: User = Depends(get_current_user)):
+def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    is_owner = isinstance(current_user, Owner)
+
+    if not is_owner:
+        if current_user.tokens <= 0:
+            raise HTTPException(status_code=402, detail="No tokens remaining. Contact your owner to top up.")
+
     try:
-        engine = get_chat_engine(current_user.id)
+        if is_owner:
+            # Owner chats against their own uploaded files
+            engine = get_chat_engine(str(current_user.id), [str(current_user.id)])
+        else:
+            # Regular user: query all enabled owners' files (the shared knowledge base)
+            owner_ids = [str(o.id) for o in db.query(Owner).filter(Owner.enabled == True).all()]
+            engine = get_chat_engine(str(current_user.id), owner_ids or [str(current_user.id)])
         response = engine.chat(req.question)
 
         # Step 1: Build file → correct reference number mapping
@@ -238,9 +306,18 @@ def chat(req: ChatRequest, current_user: User = Depends(get_current_user)):
         # Step 5: Build deduplicated sources list
         sources = list(file_to_info.values())
 
+        # Deduct one token for regular users after a successful response
+        tokens_remaining = None
+        if not is_owner:
+            current_user.tokens = max(0, current_user.tokens - 1)
+            db.add(current_user)
+            db.commit()
+            tokens_remaining = current_user.tokens
+
         return {
             "answer": answer,
-            "sources": sources
+            "sources": sources,
+            "tokens_remaining": tokens_remaining,
         }
     except HTTPException:
         raise
@@ -329,6 +406,82 @@ def delete_file(filename: str, current_user: User = Depends(get_current_user)):
     return {"message": f"File '{filename}' deleted successfully"}
 
 
+# ── Owner File Management ────────────────────────────────────
+@app.post("/owner/upload")
+async def owner_upload_file(file: UploadFile = File(...), current_owner: Owner = Depends(get_current_owner)):
+    safe_name = Path(file.filename).name
+    ext = Path(safe_name).suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(SUPPORTED_EXTENSIONS)}",
+        )
+    dest: Optional[Path] = None
+    try:
+        owner_dir = UPLOAD_DIR / current_owner.id
+        owner_dir.mkdir(parents=True, exist_ok=True)
+        dest = owner_dir / safe_name
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        index_user_files(user_id=current_owner.id, file_dir=str(owner_dir))
+        sessions.clear()
+        return {"message": f"File '{safe_name}' uploaded and indexed successfully", "file": safe_name}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Upload/index error for owner %s, file %s", current_owner.id, safe_name)
+        if dest and dest.exists():
+            dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Failed to process and index the file.")
+
+
+@app.get("/owner/files")
+def owner_list_files(current_owner: Owner = Depends(get_current_owner)):
+    owner_dir = UPLOAD_DIR / current_owner.id
+    if not owner_dir.exists():
+        return {"files": []}
+    files = [
+        {
+            "name": f.name,
+            "size": f.stat().st_size,
+            "uploaded_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+        }
+        for f in owner_dir.iterdir() if f.is_file()
+    ]
+    return {"files": files}
+
+
+@app.get("/owner/files/{filename}/download")
+def owner_download_file(filename: str, current_owner: Owner = Depends(get_current_owner)):
+    if filename != Path(filename).name:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    file_path = UPLOAD_DIR / current_owner.id / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path=file_path, filename=filename, media_type="application/octet-stream")
+
+
+@app.delete("/owner/files/{filename}")
+def owner_delete_file(filename: str, current_owner: Owner = Depends(get_current_owner)):
+    if filename != Path(filename).name:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    owner_dir = UPLOAD_DIR / current_owner.id
+    file_path = owner_dir / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    file_path.unlink()
+    sessions.clear()
+    try:
+        delete_user_files(current_owner.id)
+        remaining = [f for f in owner_dir.iterdir() if f.is_file()]
+        if remaining:
+            index_user_files(user_id=current_owner.id, file_dir=str(owner_dir))
+    except Exception:
+        logger.exception("Index update failed after deleting %s for owner %s", filename, current_owner.id)
+        raise HTTPException(status_code=500, detail="File deleted but index update failed.")
+    return {"message": f"File '{filename}' deleted successfully"}
+
+
 # ── Admin Auth ───────────────────────────────────────────────
 @app.post("/admin/auth/login")
 def admin_login(req: AdminLoginRequest, db: Session = Depends(get_db)):
@@ -411,6 +564,133 @@ def admin_set_user_status(
     user.enabled = req.enabled
     db.commit()
     return {"message": "Status updated"}
+
+
+# ── Admin → Owner Management ─────────────────────────────────
+@app.get("/admin/owners")
+def admin_list_owners(current_admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    owners = db.query(Owner).order_by(Owner.created_at.desc()).all()
+    return [
+        {
+            "id": o.id,
+            "name": o.name,
+            "email": o.email,
+            "enabled": o.enabled,
+            "created_at": o.created_at,
+        }
+        for o in owners
+    ]
+
+
+@app.post("/admin/owners")
+def admin_create_owner(
+    req: OwnerCreateRequest,
+    current_admin: Admin = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    if db.query(Owner).filter(Owner.email == req.email).first():
+        raise HTTPException(status_code=400, detail="Email already registered")
+    owner = Owner(name=req.name, email=req.email, hashed_password=hash_password(req.password))
+    db.add(owner)
+    db.commit()
+    db.refresh(owner)
+    return {"id": owner.id, "name": owner.name, "email": owner.email}
+
+
+@app.put("/admin/owners/{owner_id}/status")
+def admin_set_owner_status(
+    owner_id: str,
+    req: UserStatusRequest,
+    current_admin: Admin = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    owner = db.query(Owner).filter(Owner.id == owner_id).first()
+    if not owner:
+        raise HTTPException(status_code=404, detail="Owner not found")
+    owner.enabled = req.enabled
+    db.commit()
+    return {"message": "Status updated"}
+
+
+@app.delete("/admin/owners/{owner_id}")
+def admin_delete_owner(
+    owner_id: str,
+    current_admin: Admin = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    owner = db.query(Owner).filter(Owner.id == owner_id).first()
+    if not owner:
+        raise HTTPException(status_code=404, detail="Owner not found")
+    db.delete(owner)
+    db.commit()
+    return {"message": "Owner deleted"}
+
+
+# ── Owner → User Management ───────────────────────────────────
+@app.get("/owner/users")
+def owner_list_users(current_owner: Owner = Depends(get_current_owner), db: Session = Depends(get_db)):
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return [
+        {
+            "id": u.id,
+            "name": u.name,
+            "email": u.email,
+            "enabled": u.enabled,
+            "tokens": u.tokens,
+            "created_at": u.created_at,
+        }
+        for u in users
+    ]
+
+
+@app.put("/owner/users/{user_id}/status")
+def owner_set_user_status(
+    user_id: str,
+    req: UserStatusRequest,
+    current_owner: Owner = Depends(get_current_owner),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.enabled = req.enabled
+    db.commit()
+    return {"message": "Status updated"}
+
+
+class TokenTopUpRequest(BaseModel):
+    amount: int
+
+
+@app.put("/owner/users/{user_id}/tokens")
+def owner_topup_tokens(
+    user_id: str,
+    req: TokenTopUpRequest,
+    current_owner: Owner = Depends(get_current_owner),
+    db: Session = Depends(get_db),
+):
+    if req.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.tokens += req.amount
+    db.commit()
+    return {"tokens": user.tokens}
+
+
+@app.delete("/owner/users/{user_id}")
+def owner_delete_user(
+    user_id: str,
+    current_owner: Owner = Depends(get_current_owner),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    db.delete(user)
+    db.commit()
+    return {"message": "User deleted"}
 
 
 @app.get("/health")

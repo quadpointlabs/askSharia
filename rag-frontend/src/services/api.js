@@ -21,12 +21,62 @@ api.interceptors.request.use((config) => {
 export const login = (email, password) =>
   api.post('/auth/login', { email, password });
 
+export const register = (name, email, password) =>
+  api.post('/auth/register', { name, email, password });
+
 export const getMe = () =>
   api.get('/auth/me');
+
+// Owner Auth (separate credentials)
+const ownerApi = axios.create({ baseURL: API_URL });
+
+ownerApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem('ownerToken');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+export const ownerLogin = (email, password) =>
+  ownerApi.post('/owner/auth/login', { email, password });
+
+export const ownerGetMe = () =>
+  ownerApi.get('/owner/auth/me');
+
+export const ownerListUsers = () =>
+  ownerApi.get('/owner/users');
+
+export const ownerSetUserStatus = (userId, enabled) =>
+  ownerApi.put(`/owner/users/${userId}/status`, { enabled });
+
+export const ownerDeleteUser = (userId) =>
+  ownerApi.delete(`/owner/users/${userId}`);
+
+export const ownerTopUpTokens = (userId, amount) =>
+  ownerApi.put(`/owner/users/${userId}/tokens`, { amount });
+
+export const ownerListFiles = () =>
+  ownerApi.get('/owner/files');
+
+export const ownerUploadFile = (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  return ownerApi.post('/owner/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+};
+
+export const ownerDeleteFile = (filename) =>
+  ownerApi.delete(`/owner/files/${filename}`);
+
+export const ownerDownloadFile = (filename) =>
+  ownerApi.get(`/owner/files/${filename}/download`, { responseType: 'blob' });
 
 // Chat
 export const sendMessage = (question) =>
   api.post('/chat', { question });
+
+export const ownerSendMessage = (question) =>
+  ownerApi.post('/chat', { question });
 
 // Files
 export const uploadFile = (file) => {
@@ -72,3 +122,15 @@ export const setUserStatus = (userId, enabled) =>
 
 export const createUser = (name, email, password) =>
   adminApi.post('/admin/users', { name, email, password });
+
+export const listOwners = () =>
+  adminApi.get('/admin/owners');
+
+export const createOwner = (name, email, password) =>
+  adminApi.post('/admin/owners', { name, email, password });
+
+export const setOwnerStatus = (ownerId, enabled) =>
+  adminApi.put(`/admin/owners/${ownerId}/status`, { enabled });
+
+export const deleteOwner = (ownerId) =>
+  adminApi.delete(`/admin/owners/${ownerId}`);

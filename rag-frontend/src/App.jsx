@@ -1,12 +1,20 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
+import Register from './pages/Register';
+import OwnerLogin from './pages/OwnerLogin';
+import OwnerDashboard from './pages/OwnerDashboard';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('token');
   return token ? children : <Navigate to="/" />;
+}
+
+function OwnerPrivateRoute({ children }) {
+  const token = localStorage.getItem('ownerToken');
+  return token ? children : <Navigate to="/owner/login" />;
 }
 
 function AdminPrivateRoute({ children }) {
@@ -18,14 +26,26 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Owner routes */}
+        {/* User routes */}
         <Route path="/" element={<Home />} />
+        <Route path="/register" element={<Register />} />
         <Route
           path="/dashboard"
           element={
             <PrivateRoute>
               <Dashboard />
             </PrivateRoute>
+          }
+        />
+
+        {/* Owner routes */}
+        <Route path="/owner/login" element={<OwnerLogin />} />
+        <Route
+          path="/owner"
+          element={
+            <OwnerPrivateRoute>
+              <OwnerDashboard />
+            </OwnerPrivateRoute>
           }
         />
 

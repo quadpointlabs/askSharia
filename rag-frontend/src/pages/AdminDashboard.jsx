@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAdminStats, listUsers, setUserStatus, changeAdminPassword, createUser } from '../services/api';
+import { getAdminStats, listUsers, setUserStatus, changeAdminPassword, createUser, listOwners, createOwner, setOwnerStatus, deleteOwner } from '../services/api';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -13,6 +13,14 @@ export default function AdminDashboard() {
   const [createForm, setCreateForm] = useState({ name: '', email: '', password: '' });
   const [createError, setCreateError] = useState('');
   const [createLoading, setCreateLoading] = useState(false);
+  const [owners, setOwners] = useState([]);
+  const [loadingOwners, setLoadingOwners] = useState(false);
+  const [togglingOwnerId, setTogglingOwnerId] = useState(null);
+  const [deletingOwnerId, setDeletingOwnerId] = useState(null);
+  const [showCreateOwnerForm, setShowCreateOwnerForm] = useState(false);
+  const [createOwnerForm, setCreateOwnerForm] = useState({ name: '', email: '', password: '' });
+  const [createOwnerError, setCreateOwnerError] = useState('');
+  const [createOwnerLoading, setCreateOwnerLoading] = useState(false);
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
   const [pwError, setPwError] = useState('');
   const [pwSuccess, setPwSuccess] = useState('');
@@ -25,6 +33,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (activeTab === 'users' && users.length === 0) fetchUsers();
+    if (activeTab === 'owners' && owners.length === 0) fetchOwners();
   }, [activeTab]);
 
   const fetchStats = async () => {
@@ -87,6 +96,61 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchOwners = async () => {
+    setLoadingOwners(true);
+    try {
+      const res = await listOwners();
+      setOwners(res.data);
+    } catch {
+      // keep existing list on error
+    } finally {
+      setLoadingOwners(false);
+    }
+  };
+
+  const handleToggleOwner = async (ownerId, currentEnabled) => {
+    setTogglingOwnerId(ownerId);
+    try {
+      await setOwnerStatus(ownerId, !currentEnabled);
+      setOwners(prev =>
+        prev.map(o => o.id === ownerId ? { ...o, enabled: !currentEnabled } : o)
+      );
+    } catch {
+      // silently fail
+    } finally {
+      setTogglingOwnerId(null);
+    }
+  };
+
+  const handleDeleteOwner = async (ownerId) => {
+    if (!window.confirm('Delete this owner permanently?')) return;
+    setDeletingOwnerId(ownerId);
+    try {
+      await deleteOwner(ownerId);
+      setOwners(prev => prev.filter(o => o.id !== ownerId));
+    } catch {
+      // silently fail
+    } finally {
+      setDeletingOwnerId(null);
+    }
+  };
+
+  const handleCreateOwner = async (e) => {
+    e.preventDefault();
+    setCreateOwnerError('');
+    setCreateOwnerLoading(true);
+    try {
+      const res = await createOwner(createOwnerForm.name, createOwnerForm.email, createOwnerForm.password);
+      setOwners(prev => [{ ...res.data, enabled: true, created_at: new Date().toISOString() }, ...prev]);
+      setCreateOwnerForm({ name: '', email: '', password: '' });
+      setShowCreateOwnerForm(false);
+    } catch (err) {
+      setCreateOwnerError(err.response?.data?.detail || 'Failed to create owner');
+    } finally {
+      setCreateOwnerLoading(false);
+    }
+  };
+
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setPwError('');
@@ -138,6 +202,12 @@ export default function AdminDashboard() {
               👥 Users
             </button>
             <button
+              onClick={() => setActiveTab('owners')}
+              style={{ ...styles.navBtn, background: activeTab === 'owners' ? 'rgba(255,255,255,0.15)' : 'transparent' }}
+            >
+              🏢 Owners
+            </button>
+            <button
               onClick={() => setActiveTab('settings')}
               style={{ ...styles.navBtn, background: activeTab === 'settings' ? 'rgba(255,255,255,0.15)' : 'transparent' }}
             >
@@ -167,6 +237,125 @@ export default function AdminDashboard() {
               </div>
             ) : (
               <p style={{ color: '#e53e3e' }}>Failed to load stats.</p>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'owners' && (
+          <div style={styles.section}>
+            <div style={styles.sectionHeader}>
+              <h2 style={styles.sectionTitle}>🏢 Owner Management</h2>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => { setShowCreateOwnerForm(v => !v); setCreateOwnerError(''); }} style={styles.createBtn}>
+                  {showCreateOwnerForm ? '✕ Cancel' : '+ New Owner'}
+                </button>
+                <button onClick={fetchOwners} style={styles.refreshBtn}>↻ Refresh</button>
+              </div>
+            </div>
+
+            {showCreateOwnerForm && (
+              <form onSubmit={handleCreateOwner} style={styles.createForm}>
+                <input
+                  type="text"
+                  placeholder="Full Name"
+                  value={createOwnerForm.name}
+                  onChange={e => setCreateOwnerForm(f => ({ ...f, name: e.target.value }))}
+                  style={styles.createInput}
+                  required
+                />
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={createOwnerForm.email}
+                  onChange={e => setCreateOwnerForm(f => ({ ...f, email: e.target.value }))}
+                  style={styles.createInput}
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={createOwnerForm.password}
+                  onChange={e => setCreateOwnerForm(f => ({ ...f, password: e.target.value }))}
+                  style={styles.createInput}
+                  required
+                />
+                {createOwnerError && <p style={{ color: '#e53e3e', fontSize: 13, margin: 0 }}>{createOwnerError}</p>}
+                <button type="submit" style={styles.createSubmitBtn} disabled={createOwnerLoading}>
+                  {createOwnerLoading ? 'Creating...' : 'Create Owner'}
+                </button>
+              </form>
+            )}
+
+            {loadingOwners ? (
+              <p style={{ color: '#888' }}>Loading owners...</p>
+            ) : (
+              <div style={styles.tableWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Name</th>
+                      <th style={styles.th}>Email</th>
+                      <th style={styles.th}>Status</th>
+                      <th style={styles.th}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {owners.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ ...styles.td, textAlign: 'center', color: '#aaa', padding: '32px' }}>
+                          No owners found
+                        </td>
+                      </tr>
+                    ) : owners.map(owner => (
+                      <tr key={owner.id} style={styles.tr}>
+                        <td style={styles.td}>
+                          <div style={styles.userCell}>
+                            <div style={{ ...styles.avatar, background: 'linear-gradient(135deg, #134e5e, #71b280)' }}>
+                              {owner.name?.charAt(0)?.toUpperCase() ?? '?'}
+                            </div>
+                            <span>{owner.name}</span>
+                          </div>
+                        </td>
+                        <td style={styles.td}>{owner.email}</td>
+                        <td style={styles.td}>
+                          <span style={{
+                            ...styles.badge,
+                            background: owner.enabled !== false ? '#48bb78' : '#e53e3e',
+                          }}>
+                            {owner.enabled !== false ? 'Active' : 'Disabled'}
+                          </span>
+                        </td>
+                        <td style={styles.td}>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              onClick={() => handleToggleOwner(owner.id, owner.enabled !== false)}
+                              disabled={togglingOwnerId === owner.id}
+                              style={{
+                                ...styles.actionBtn,
+                                background: owner.enabled !== false ? '#e53e3e' : '#48bb78',
+                                opacity: togglingOwnerId === owner.id ? 0.6 : 1,
+                              }}
+                            >
+                              {togglingOwnerId === owner.id ? '...' : owner.enabled !== false ? 'Disable' : 'Enable'}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteOwner(owner.id)}
+                              disabled={deletingOwnerId === owner.id}
+                              style={{
+                                ...styles.actionBtn,
+                                background: '#718096',
+                                opacity: deletingOwnerId === owner.id ? 0.6 : 1,
+                              }}
+                            >
+                              {deletingOwnerId === owner.id ? '...' : 'Delete'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )}

@@ -1,7 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { listFiles, uploadFile, deleteFile, downloadFile } from '../services/api';
 
-export default function FileManager({ onUploadingChange }) {
+export default function FileManager({ onUploadingChange, apiOverrides }) {
+  const apiFns = {
+    listFiles,
+    uploadFile,
+    deleteFile,
+    downloadFile,
+    ...apiOverrides,
+  };
   const [files, setFiles] = useState([]);
   const [selected, setSelected] = useState([]);
   const [uploadModal, setUploadModal] = useState(null);
@@ -19,7 +26,7 @@ export default function FileManager({ onUploadingChange }) {
 
   const fetchFiles = async () => {
     try {
-      const res = await listFiles();
+      const res = await apiFns.listFiles();
       setFiles(res.data.files);
     } catch (err) {
       console.error('Failed to fetch files');
@@ -36,7 +43,7 @@ export default function FileManager({ onUploadingChange }) {
       for (let i = 0; i < fileArray.length; i++) {
         setUploadModal(prev => ({ ...prev, current: i + 1, currentFile: fileArray[i].name }));
         try {
-          await uploadFile(fileArray[i]);
+          await apiFns.uploadFile(fileArray[i]);
         } catch {
           failedFiles.push(fileArray[i].name);
           setUploadModal(prev => ({ ...prev, failed: [...prev.failed, fileArray[i].name] }));
@@ -83,7 +90,7 @@ export default function FileManager({ onUploadingChange }) {
 
   const handleDownload = async (filename) => {
     try {
-      const res = await downloadFile(filename);
+      const res = await apiFns.downloadFile(filename);
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement('a');
       a.href = url;
@@ -105,7 +112,7 @@ export default function FileManager({ onUploadingChange }) {
     if (selected.length === 0) return;
     if (!confirm(`Delete ${selected.length} file(s)?`)) return;
     try {
-      await Promise.all(selected.map(f => deleteFile(f)));
+      await Promise.all(selected.map(f => apiFns.deleteFile(f)));
       setMessage(`🗑️ ${selected.length} file(s) deleted`);
       setSelected([]);
       fetchFiles();
