@@ -7,6 +7,9 @@ qdrant-client
 fastapi
 uvicorn
 python-dotenv
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
 sentence-transformers
 pypdf
 docx2txt

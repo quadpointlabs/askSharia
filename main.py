@@ -155,9 +155,10 @@ class OwnerCreateRequest(BaseModel):
 # ── Auth Endpoints ───────────────────────────────────────────
 @app.post("/auth/register", status_code=201)
 def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == req.email).first():
+    email = req.email.lower()
+    if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=409, detail="An account with this email already exists")
-    user = User(name=req.name, email=req.email, hashed_password=hash_password(req.password))
+    user = User(name=req.name, email=email, hashed_password=hash_password(req.password))
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -166,7 +167,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
 @app.post("/auth/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == req.email).first()
+    user = db.query(User).filter(User.email == req.email.lower()).first()
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.enabled:
@@ -187,7 +188,7 @@ def get_me(current_user: User = Depends(get_current_user)):
 # ── Owner Auth ───────────────────────────────────────────────
 @app.post("/owner/auth/login")
 def owner_login(req: LoginRequest, db: Session = Depends(get_db)):
-    owner = db.query(Owner).filter(Owner.email == req.email).first()
+    owner = db.query(Owner).filter(Owner.email == req.email.lower()).first()
     if not owner or not verify_password(req.password, owner.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not owner.enabled:
@@ -542,9 +543,10 @@ def admin_create_user(
     current_admin: Admin = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    if db.query(User).filter(User.email == req.email).first():
+    email = req.email.lower()
+    if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
-    user = User(name=req.name, email=req.email, hashed_password=hash_password(req.password))
+    user = User(name=req.name, email=email, hashed_password=hash_password(req.password))
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -588,9 +590,10 @@ def admin_create_owner(
     current_admin: Admin = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    if db.query(Owner).filter(Owner.email == req.email).first():
+    email = req.email.lower()
+    if db.query(Owner).filter(Owner.email == email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
-    owner = Owner(name=req.name, email=req.email, hashed_password=hash_password(req.password))
+    owner = Owner(name=req.name, email=email, hashed_password=hash_password(req.password))
     db.add(owner)
     db.commit()
     db.refresh(owner)
