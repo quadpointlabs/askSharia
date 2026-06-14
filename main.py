@@ -43,6 +43,7 @@ load_dotenv()
 # ── Setup ────────────────────────────────────────────────────
 COLLECTION_NAME = "rag_documents"
 UPLOAD_DIR = Path("text_files")
+SYSTEM_PROMPT_FILE = Path("system_prompt.txt")
 
 try:
     client = QdrantClient(url=os.getenv("QDRANT_URL", "localhost"), port=6333)
@@ -98,6 +99,19 @@ def startup():
         try:
             conn.execute(text("ALTER TABLE users ADD COLUMN tokens INTEGER NOT NULL DEFAULT 100"))
             conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN plan VARCHAR NOT NULL DEFAULT 'free'"))
+            conn.commit()
+        except Exception:
+            pass
+
+    # Load persisted system prompt if present
+    global _system_prompt
+    if SYSTEM_PROMPT_FILE.exists():
+        try:
+            _system_prompt = SYSTEM_PROMPT_FILE.read_text(encoding="utf-8")
         except Exception:
             pass
 
@@ -182,6 +196,7 @@ def get_me(current_user: User = Depends(get_current_user)):
         "name": current_user.name,
         "email": current_user.email,
         "tokens": getattr(current_user, "tokens", 100),
+        "plan": getattr(current_user, "plan", "free"),
         "created_at": current_user.created_at,
     }
 
@@ -207,7 +222,7 @@ def owner_get_me(current_owner: Owner = Depends(get_current_owner)):
 
 
 # ── Chat ─────────────────────────────────────────────────────
-_SYSTEM_PROMPT = (
+_DEFAULT_SYSTEM_PROMPT = (
     "You are a helpful assistant. Answer ONLY using the provided documents. "
     "Each retrieved passage is labeled with its source file. "
     "If multiple passages come from the same file, use the same citation number for that file. "
@@ -218,6 +233,7 @@ _SYSTEM_PROMPT = (
     "Hebrew: 'מידע זה אינו זמין במסמכים שסופקו.' "
     "Always respond in the same language the user used."
 )
+_system_prompt: str = _DEFAULT_SYSTEM_PROMPT
 
 
 def get_chat_engine(cache_key: str, user_ids: list):
@@ -244,7 +260,7 @@ def get_chat_engine(cache_key: str, user_ids: list):
             memory=ChatMemoryBuffer.from_defaults(token_limit=4096),
             llm=llm,
             node_postprocessors=[NumberedSourcePostprocessor()],
-            system_prompt=_SYSTEM_PROMPT,
+            system_prompt=_system_prompt,
             verbose=False,
         )
     return sessions[cache_key]
@@ -640,6 +656,7 @@ def owner_list_users(current_owner: Owner = Depends(get_current_owner), db: Sess
             "email": u.email,
             "enabled": u.enabled,
             "tokens": u.tokens,
+            "plan": getattr(u, "plan", "free"),
             "created_at": u.created_at,
         }
         for u in users
@@ -664,6 +681,12 @@ def owner_set_user_status(
 class TokenTopUpRequest(BaseModel):
     amount: int
 
+class UserPlanRequest(BaseModel):
+    plan: str
+
+class SystemPromptRequest(BaseModel):
+    system_prompt: str
+
 
 @app.put("/owner/users/{user_id}/tokens")
 def owner_topup_tokens(
@@ -682,6 +705,23 @@ def owner_topup_tokens(
     return {"tokens": user.tokens}
 
 
+@app.put("/owner/users/{user_id}/plan")
+def owner_set_user_plan(
+    user_id: str,
+    req: UserPlanRequest,
+    current_owner: Owner = Depends(get_current_owner),
+    db: Session = Depends(get_db),
+):
+    if req.plan not in ("free", "basic", "pro"):
+        raise HTTPException(status_code=400, detail="Invalid plan")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.plan = req.plan
+    db.commit()
+    return {"plan": user.plan}
+
+
 @app.delete("/owner/users/{user_id}")
 def owner_delete_user(
     user_id: str,
@@ -694,6 +734,27 @@ def owner_delete_user(
     db.delete(user)
     db.commit()
     return {"message": "User deleted"}
+
+
+# ── Owner → System Prompt ─────────────────────────────────────
+@app.get("/owner/system-prompt")
+def owner_get_system_prompt(current_owner: Owner = Depends(get_current_owner)):
+    return {"system_prompt": _system_prompt}
+
+
+@app.put("/owner/system-prompt")
+def owner_set_system_prompt(
+    req: SystemPromptRequest,
+    current_owner: Owner = Depends(get_current_owner),
+):
+    global _system_prompt
+    prompt = req.system_prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="System prompt cannot be empty")
+    _system_prompt = prompt
+    SYSTEM_PROMPT_FILE.write_text(prompt, encoding="utf-8")
+    sessions.clear()
+    return {"system_prompt": _system_prompt}
 
 
 @app.get("/health")

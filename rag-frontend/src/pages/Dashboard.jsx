@@ -53,6 +53,9 @@ export default function Dashboard() {
           </div>
           {user && (
             <div style={mobile.headerRight}>
+              <span style={planBadgeStyle(user.plan ?? 'free')}>
+                {(user.plan ?? 'free').charAt(0).toUpperCase() + (user.plan ?? 'free').slice(1)}
+              </span>
               <div style={mobile.userAvatar}>{user.name.charAt(0).toUpperCase()}</div>
               <button onClick={handleLogout} style={mobile.logoutBtn} title="Logout">🚪</button>
             </div>
@@ -75,12 +78,12 @@ export default function Dashboard() {
           )}
           {activeTab === 'tokens' && (
             <div style={mobile.filesWrapper}>
-              {user && <TokensPanel tokens={user.tokens ?? 0} />}
+              {user && <TokensPanel tokens={user.tokens ?? 0} plan={user.plan ?? 'free'} />}
             </div>
           )}
           {activeTab === 'pricing' && (
             <div style={mobile.filesWrapper}>
-              <PricingPage />
+              <PricingPage currentPlan={user?.plan ?? 'free'} />
             </div>
           )}
         </div>
@@ -134,6 +137,9 @@ export default function Dashboard() {
               <div>
                 <p style={styles.userName}>{user.name}</p>
                 <p style={styles.userEmail}>{user.email}</p>
+                <span style={planBadgeStyle(user.plan ?? 'free')}>
+                  {(user.plan ?? 'free').charAt(0).toUpperCase() + (user.plan ?? 'free').slice(1)} Plan
+                </span>
               </div>
             </div>
           )}
@@ -185,13 +191,13 @@ export default function Dashboard() {
         {activeTab === 'tokens' && (
           <div style={styles.section}>
             <h2 style={styles.sectionTitle}>🪙 My Tokens</h2>
-            {user && <TokensPanel tokens={user.tokens ?? 0} />}
+            {user && <TokensPanel tokens={user.tokens ?? 0} plan={user.plan ?? 'free'} />}
           </div>
         )}
         {activeTab === 'pricing' && (
           <div style={styles.section}>
             <h2 style={styles.sectionTitle}>💎 Plans & Pricing</h2>
-            <PricingPage />
+            <PricingPage currentPlan={user?.plan ?? 'free'} />
           </div>
         )}
       </div>
@@ -199,32 +205,45 @@ export default function Dashboard() {
   );
 }
 
-function TokensPanel({ tokens }) {
-  const FREE_GRANT = 100;
-  const used = Math.max(0, FREE_GRANT - tokens);
-  const pct = Math.max(0, Math.min(100, (tokens / FREE_GRANT) * 100));
-  const barColor = pct > 50 ? '#48bb78' : pct > 20 ? '#ed8936' : '#e53e3e';
+function TokensPanel({ tokens, plan = 'free' }) {
+  const planInfo = PLANS.find(p => p.key === plan) ?? PLANS[0];
+  const isUnlimited = planInfo.unlimited;
+  const planGrant = planInfo.tokens ?? 0;
+  const used = isUnlimited ? 0 : Math.max(0, planGrant - tokens);
+  const pct = isUnlimited ? 100 : Math.max(0, Math.min(100, (tokens / planGrant) * 100));
+  const barColor = isUnlimited ? '#48bb78' : pct > 50 ? '#48bb78' : pct > 20 ? '#ed8936' : '#e53e3e';
 
   return (
     <div style={tp.wrap}>
       <div style={tp.balanceCard}>
         <div style={tp.balanceLabel}>Available Tokens</div>
-        <div style={{ ...tp.balanceNum, color: barColor }}>{tokens}</div>
-        <div style={tp.barTrack}>
-          <div style={{ ...tp.barFill, width: `${pct}%`, background: barColor }} />
+        <div style={{ ...tp.balanceNum, color: barColor }}>
+          {isUnlimited ? '∞' : tokens}
         </div>
-        <div style={tp.barMeta}>
-          <span>{used} used</span>
-          <span>{tokens} remaining</span>
-        </div>
+        {!isUnlimited && (
+          <>
+            <div style={tp.barTrack}>
+              <div style={{ ...tp.barFill, width: `${pct}%`, background: barColor }} />
+            </div>
+            <div style={tp.barMeta}>
+              <span>{used} used</span>
+              <span>{tokens} remaining</span>
+            </div>
+          </>
+        )}
+        {isUnlimited && (
+          <div style={{ fontSize: 13, color: '#48bb78', marginTop: 8, fontWeight: '600' }}>
+            Unlimited — no monthly cap
+          </div>
+        )}
       </div>
 
       <div style={tp.infoGrid}>
         <div style={tp.infoCard}>
           <div style={tp.infoIcon}>🎁</div>
-          <div style={tp.infoTitle}>Free Grant</div>
-          <div style={tp.infoValue}>{FREE_GRANT} tokens</div>
-          <div style={tp.infoDesc}>Credited automatically on registration</div>
+          <div style={tp.infoTitle}>{planInfo.name} Plan</div>
+          <div style={tp.infoValue}>{isUnlimited ? 'Unlimited' : `${planGrant.toLocaleString()} tokens`}</div>
+          <div style={tp.infoDesc}>Included with your current plan</div>
         </div>
         <div style={tp.infoCard}>
           <div style={tp.infoIcon}>💬</div>
@@ -235,8 +254,8 @@ function TokensPanel({ tokens }) {
         <div style={tp.infoCard}>
           <div style={tp.infoIcon}>📦</div>
           <div style={tp.infoTitle}>Need More?</div>
-          <div style={tp.infoValue}>Contact owner</div>
-          <div style={tp.infoDesc}>Ask your owner to top up your balance</div>
+          <div style={tp.infoValue}>Update the plan</div>
+          <div style={tp.infoDesc}>Contact your owner to upgrade to a higher plan</div>
         </div>
       </div>
     </div>
@@ -261,8 +280,8 @@ const PLANS = [
     ],
   },
   {
-    key: 'normal',
-    name: 'Normal',
+    key: 'basic',
+    name: 'Basic',
     price: 20,
     tokens: 500,
     unlimited: false,
@@ -297,7 +316,7 @@ const PLANS = [
   },
 ];
 
-function PricingPage() {
+function PricingPage({ currentPlan = 'free' }) {
   return (
     <div style={pp.wrap}>
       <p style={pp.subtitle}>
@@ -305,62 +324,74 @@ function PricingPage() {
         Contact your owner to upgrade.
       </p>
       <div style={pp.grid}>
-        {PLANS.map(plan => (
-          <div
-            key={plan.key}
-            style={{
-              ...pp.card,
-              borderColor: plan.popular ? plan.color : '#e8e8e8',
-              borderWidth: plan.popular ? 2 : 1,
-            }}
-          >
-            {plan.popular && (
-              <div style={{ ...pp.popularBadge, background: plan.color }}>
-                Most Popular
-              </div>
-            )}
-            <div style={{ ...pp.planIcon, background: plan.color + '18', color: plan.color }}>
-              {plan.key === 'free' ? '🌱' : plan.key === 'normal' ? '⚡' : '🚀'}
-            </div>
-            <h3 style={{ ...pp.planName, color: plan.color }}>{plan.name}</h3>
-            <div style={pp.priceRow}>
-              {plan.price === 0 ? (
-                <span style={pp.priceAmount}>Free</span>
-              ) : (
-                <>
-                  <span style={pp.priceCurrency}>$</span>
-                  <span style={pp.priceAmount}>{plan.price}</span>
-                  <span style={pp.pricePeriod}>/mo</span>
-                </>
-              )}
-            </div>
-            <div style={pp.tokenRow}>
-              <span style={{ ...pp.tokenBadge, background: plan.color + '18', color: plan.color }}>
-                🪙 {plan.unlimited ? 'Unlimited tokens' : `${plan.tokens.toLocaleString()} tokens/month`}
-              </span>
-            </div>
-            <ul style={pp.featureList}>
-              {plan.features.map((f, i) => (
-                <li key={i} style={pp.featureItem}>
-                  <span style={{ ...pp.checkIcon, color: plan.color }}>✓</span>
-                  {f}
-                </li>
-              ))}
-            </ul>
-            <button
+        {PLANS.map(plan => {
+          const isCurrent = plan.key === currentPlan;
+          return (
+            <div
+              key={plan.key}
               style={{
-                ...pp.ctaBtn,
-                background: plan.popular
-                  ? `linear-gradient(135deg, ${plan.color}, ${plan.color}cc)`
-                  : 'white',
-                color: plan.popular ? 'white' : plan.color,
-                border: `1.5px solid ${plan.color}`,
+                ...pp.card,
+                borderColor: isCurrent ? plan.color : plan.popular ? plan.color : '#e8e8e8',
+                borderWidth: isCurrent || plan.popular ? 2 : 1,
+                boxShadow: isCurrent ? `0 4px 24px ${plan.color}33` : pp.card.boxShadow,
               }}
             >
-              {plan.price === 0 ? 'Current Free Plan' : `Upgrade to ${plan.name}`}
-            </button>
-          </div>
-        ))}
+              {isCurrent && (
+                <div style={{ ...pp.popularBadge, background: plan.color }}>
+                  Your Plan
+                </div>
+              )}
+              {!isCurrent && plan.popular && (
+                <div style={{ ...pp.popularBadge, background: plan.color }}>
+                  Most Popular
+                </div>
+              )}
+              <div style={{ ...pp.planIcon, background: plan.color + '18', color: plan.color }}>
+                {plan.key === 'free' ? '🌱' : plan.key === 'basic' ? '⚡' : '🚀'}
+              </div>
+              <h3 style={{ ...pp.planName, color: plan.color }}>{plan.name}</h3>
+              <div style={pp.priceRow}>
+                {plan.price === 0 ? (
+                  <span style={pp.priceAmount}>Free</span>
+                ) : (
+                  <>
+                    <span style={pp.priceCurrency}>$</span>
+                    <span style={pp.priceAmount}>{plan.price}</span>
+                    <span style={pp.pricePeriod}>/mo</span>
+                  </>
+                )}
+              </div>
+              <div style={pp.tokenRow}>
+                <span style={{ ...pp.tokenBadge, background: plan.color + '18', color: plan.color }}>
+                  🪙 {plan.unlimited ? 'Unlimited tokens' : `${plan.tokens.toLocaleString()} tokens/month`}
+                </span>
+              </div>
+              <ul style={pp.featureList}>
+                {plan.features.map((f, i) => (
+                  <li key={i} style={pp.featureItem}>
+                    <span style={{ ...pp.checkIcon, color: plan.color }}>✓</span>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <button
+                style={{
+                  ...pp.ctaBtn,
+                  background: isCurrent
+                    ? `linear-gradient(135deg, ${plan.color}, ${plan.color}cc)`
+                    : plan.popular
+                      ? `linear-gradient(135deg, ${plan.color}, ${plan.color}cc)`
+                      : 'white',
+                  color: isCurrent || plan.popular ? 'white' : plan.color,
+                  border: `1.5px solid ${plan.color}`,
+                  cursor: isCurrent ? 'default' : 'pointer',
+                }}
+              >
+                {isCurrent ? `✓ Your Current Plan` : plan.price === 0 ? 'Downgrade to Free' : `Upgrade to ${plan.name}`}
+              </button>
+            </div>
+          );
+        })}
       </div>
       <p style={pp.note}>
         To upgrade your plan, contact your owner. Tokens are deducted per message sent.
@@ -368,6 +399,29 @@ function PricingPage() {
     </div>
   );
 }
+
+const PLAN_BADGE_COLORS = {
+  free:  { background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.9)', border: 'rgba(255,255,255,0.3)' },
+  basic: { background: 'rgba(56,178,172,0.25)',  color: '#81e6d9',              border: 'rgba(56,178,172,0.5)'  },
+  pro:   { background: 'rgba(118,75,162,0.35)',  color: '#d6bcfa',              border: 'rgba(118,75,162,0.6)'  },
+};
+
+const planBadgeStyle = (plan) => {
+  const c = PLAN_BADGE_COLORS[plan] ?? PLAN_BADGE_COLORS.free;
+  return {
+    display: 'inline-block',
+    marginTop: 4,
+    padding: '2px 8px',
+    borderRadius: 20,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    background: c.background,
+    color: c.color,
+    border: `1px solid ${c.border}`,
+  };
+};
 
 const pp = {
   wrap: {

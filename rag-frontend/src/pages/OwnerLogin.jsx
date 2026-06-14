@@ -30,7 +30,7 @@ export default function OwnerLogin() {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <img src={chatIcon} alt="RAGnotebook" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', display: 'block', margin: '0 auto 12px' }} />
+        <img src={chatIcon} alt="askSharia" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', display: 'block', margin: '0 auto 12px' }} />
         <h1 style={styles.title}>Owner Login</h1>
         <p style={styles.subtitle}>Manage your knowledge base</p>
 

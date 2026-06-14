@@ -26,6 +26,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
     tokens = Column(Integer, default=100, nullable=False)
+    plan = Column(String, default="free", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

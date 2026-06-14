@@ -28,9 +28,9 @@ export default function Register() {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <img src={chatIcon} alt="RAGnotebook" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', display: 'block', margin: '0 auto 12px' }} />
+        <img src={chatIcon} alt="askSharia" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', display: 'block', margin: '0 auto 12px' }} />
         <h1 style={styles.title}>Create Account</h1>
-        <p style={styles.subtitle}>Join RAGnotebook</p>
+        <p style={styles.subtitle}>Join askSharia</p>
 
         <form onSubmit={handleRegister} style={styles.form}>
           <input

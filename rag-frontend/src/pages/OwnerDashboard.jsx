@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerSendMessage, ownerTopUpTokens } from '../services/api';
+import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerGetSystemPrompt, ownerSetSystemPrompt } from '../services/api';
 
 const OWNER_FILE_API = {
   listFiles: ownerListFiles,
@@ -33,6 +33,11 @@ export default function OwnerDashboard() {
   const [topupId, setTopupId] = useState(null);
   const [topupAmount, setTopupAmount] = useState('10');
   const [toppingUpId, setToppingUpId] = useState(null);
+  const [savingPlanId, setSavingPlanId] = useState(null);
+  const [promptDraft, setPromptDraft] = useState('');
+  const [promptSaving, setPromptSaving] = useState(false);
+  const [promptSaved, setPromptSaved] = useState(false);
+  const [promptLoaded, setPromptLoaded] = useState(false);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
@@ -42,6 +47,10 @@ export default function OwnerDashboard() {
 
   useEffect(() => {
     if (activeTab === 'users' && users.length === 0) fetchUsers();
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'prompt' && !promptLoaded) fetchSystemPrompt();
   }, [activeTab]);
 
   const fetchUser = async () => {
@@ -110,6 +119,44 @@ export default function OwnerDashboard() {
     }
   };
 
+  const handleSetPlan = async (userId, plan) => {
+    setSavingPlanId(userId);
+    try {
+      const res = await ownerSetUserPlan(userId, plan);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, plan: res.data.plan } : u));
+    } catch {
+      // silently fail — UI reverts on next fetch
+    } finally {
+      setSavingPlanId(null);
+    }
+  };
+
+  const fetchSystemPrompt = async () => {
+    try {
+      const res = await ownerGetSystemPrompt();
+      setPromptDraft(res.data.system_prompt);
+      setPromptLoaded(true);
+    } catch {
+      // keep draft empty on error
+    }
+  };
+
+  const handleSavePrompt = async () => {
+    if (!promptDraft.trim()) return;
+    setPromptSaving(true);
+    setPromptSaved(false);
+    try {
+      const res = await ownerSetSystemPrompt(promptDraft);
+      setPromptDraft(res.data.system_prompt);
+      setPromptSaved(true);
+      setTimeout(() => setPromptSaved(false), 3000);
+    } catch {
+      // silently fail
+    } finally {
+      setPromptSaving(false);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('ownerToken');
     localStorage.removeItem('token');
@@ -148,6 +195,37 @@ export default function OwnerDashboard() {
               <FileManager onUploadingChange={setIsUploading} apiOverrides={OWNER_FILE_API} />
             </div>
           )}
+          {activeTab === 'prompt' && (
+            <div style={mobile.filesWrapper}>
+              <span style={{ fontWeight: 'bold', fontSize: 15, color: '#134e5e', display: 'block', marginBottom: 10 }}>⚙️ System Prompt</span>
+              <p style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>
+                Controls how the AI responds. Changes take effect for all new chat sessions.
+              </p>
+              <textarea
+                value={promptDraft}
+                onChange={e => setPromptDraft(e.target.value)}
+                disabled={!promptLoaded || promptSaving}
+                style={{ ...promptStyles.textarea, minHeight: 220, fontSize: 13 }}
+                placeholder={promptLoaded ? '' : 'Loading...'}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+                {promptSaved && <span style={promptStyles.savedBadge}>✓ Saved</span>}
+                <button
+                  onClick={handleSavePrompt}
+                  disabled={!promptLoaded || promptSaving || !promptDraft.trim()}
+                  style={{
+                    ...promptStyles.saveBtn,
+                    flex: 1,
+                    opacity: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 0.6 : 1,
+                    cursor: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {promptSaving ? 'Saving...' : 'Save Prompt'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'users' && (
             <div style={mobile.filesWrapper}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -173,6 +251,18 @@ export default function OwnerDashboard() {
                     }}>
                       {u.enabled !== false ? 'Active' : 'Disabled'}
                     </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <select
+                      value={u.plan || 'free'}
+                      onChange={e => handleSetPlan(u.id, e.target.value)}
+                      disabled={savingPlanId === u.id}
+                      style={planSelectStyle(u.plan || 'free', savingPlanId === u.id)}
+                    >
+                      <option value="free">Free</option>
+                      <option value="basic">Basic</option>
+                      <option value="pro">Pro</option>
+                    </select>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                     <span style={{
@@ -269,6 +359,13 @@ export default function OwnerDashboard() {
             <span style={mobile.tabIcon}>👥</span>
             <span style={mobile.tabLabel}>Users</span>
           </button>
+          <button
+            onClick={() => setActiveTab('prompt')}
+            style={{ ...mobile.tab, ...(activeTab === 'prompt' ? mobile.tabActive : {}) }}
+          >
+            <span style={mobile.tabIcon}>⚙️</span>
+            <span style={mobile.tabLabel}>Prompt</span>
+          </button>
         </div>
       </div>
     );
@@ -327,6 +424,15 @@ export default function OwnerDashboard() {
             >
               👥 Users
             </button>
+            <button
+              onClick={() => setActiveTab('prompt')}
+              style={{
+                ...styles.navBtn,
+                background: activeTab === 'prompt' ? 'rgba(255,255,255,0.2)' : 'transparent'
+              }}
+            >
+              ⚙️ System Prompt
+            </button>
           </nav>
         </div>
 
@@ -353,6 +459,39 @@ export default function OwnerDashboard() {
           </div>
         )}
 
+        {activeTab === 'prompt' && (
+          <div style={styles.section}>
+            <h2 style={styles.sectionTitle}>⚙️ System Prompt</h2>
+            <div style={promptStyles.card}>
+              <p style={promptStyles.desc}>
+                This prompt instructs the AI assistant on how to query and respond using the RAG documents.
+                Changes take effect immediately for all new chat sessions.
+              </p>
+              <textarea
+                value={promptDraft}
+                onChange={e => setPromptDraft(e.target.value)}
+                disabled={!promptLoaded || promptSaving}
+                style={promptStyles.textarea}
+                placeholder={promptLoaded ? '' : 'Loading...'}
+              />
+              <div style={promptStyles.actions}>
+                {promptSaved && <span style={promptStyles.savedBadge}>✓ Saved</span>}
+                <button
+                  onClick={handleSavePrompt}
+                  disabled={!promptLoaded || promptSaving || !promptDraft.trim()}
+                  style={{
+                    ...promptStyles.saveBtn,
+                    opacity: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 0.6 : 1,
+                    cursor: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {promptSaving ? 'Saving...' : 'Save Prompt'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'users' && (
           <div style={styles.section}>
             <div style={ownerUserStyles.sectionHeader}>
@@ -369,6 +508,7 @@ export default function OwnerDashboard() {
                       <th style={ownerUserStyles.th}>Name</th>
                       <th style={ownerUserStyles.th}>Email</th>
                       <th style={ownerUserStyles.th}>Status</th>
+                      <th style={ownerUserStyles.th}>Plan</th>
                       <th style={ownerUserStyles.th}>Tokens</th>
                       <th style={ownerUserStyles.th}>Actions</th>
                     </tr>
@@ -376,7 +516,7 @@ export default function OwnerDashboard() {
                   <tbody>
                     {users.length === 0 ? (
                       <tr>
-                        <td colSpan={5} style={{ ...ownerUserStyles.td, textAlign: 'center', color: '#aaa', padding: '32px' }}>
+                        <td colSpan={6} style={{ ...ownerUserStyles.td, textAlign: 'center', color: '#aaa', padding: '32px' }}>
                           No users found
                         </td>
                       </tr>
@@ -396,6 +536,18 @@ export default function OwnerDashboard() {
                           }}>
                             {u.enabled !== false ? 'Active' : 'Disabled'}
                           </span>
+                        </td>
+                        <td style={ownerUserStyles.td}>
+                          <select
+                            value={u.plan || 'free'}
+                            onChange={e => handleSetPlan(u.id, e.target.value)}
+                            disabled={savingPlanId === u.id}
+                            style={planSelectStyle(u.plan || 'free', savingPlanId === u.id)}
+                          >
+                            <option value="free">Free</option>
+                            <option value="basic">Basic</option>
+                            <option value="pro">Pro</option>
+                          </select>
                         </td>
                         <td style={ownerUserStyles.td}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -477,6 +629,78 @@ export default function OwnerDashboard() {
     </div>
   );
 }
+
+const promptStyles = {
+  card: {
+    background: 'white',
+    borderRadius: 12,
+    boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+    padding: 24,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 16,
+    flex: 1,
+  },
+  desc: {
+    margin: 0,
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 1.6,
+  },
+  textarea: {
+    width: '100%',
+    minHeight: 280,
+    padding: '12px 14px',
+    borderRadius: 8,
+    border: '1.5px solid #dde1e7',
+    fontSize: 14,
+    fontFamily: 'monospace',
+    lineHeight: 1.6,
+    resize: 'vertical',
+    color: '#333',
+    background: '#fafbfc',
+    boxSizing: 'border-box',
+    outline: 'none',
+  },
+  actions: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  savedBadge: {
+    fontSize: 13,
+    color: '#48bb78',
+    fontWeight: '600',
+  },
+  saveBtn: {
+    padding: '10px 24px',
+    borderRadius: 8,
+    border: 'none',
+    background: 'linear-gradient(135deg, #134e5e, #71b280)',
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+};
+
+const PLAN_COLORS = {
+  free:  { background: '#edf2f7', color: '#4a5568' },
+  basic: { background: '#ebf8ff', color: '#2b6cb0' },
+  pro:   { background: '#faf5ff', color: '#6b46c1' },
+};
+
+const planSelectStyle = (plan, disabled) => ({
+  padding: '4px 8px',
+  borderRadius: 6,
+  border: `1.5px solid ${PLAN_COLORS[plan]?.color ?? '#cbd5e0'}`,
+  background: PLAN_COLORS[plan]?.background ?? '#edf2f7',
+  color: PLAN_COLORS[plan]?.color ?? '#4a5568',
+  fontSize: 12,
+  fontWeight: '600',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  opacity: disabled ? 0.6 : 1,
+});
 
 const mobile = {
   container: {

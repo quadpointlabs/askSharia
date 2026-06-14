@@ -54,6 +54,15 @@ export const ownerDeleteUser = (userId) =>
 export const ownerTopUpTokens = (userId, amount) =>
   ownerApi.put(`/owner/users/${userId}/tokens`, { amount });
 
+export const ownerSetUserPlan = (userId, plan) =>
+  ownerApi.put(`/owner/users/${userId}/plan`, { plan });
+
+export const ownerGetSystemPrompt = () =>
+  ownerApi.get('/owner/system-prompt');
+
+export const ownerSetSystemPrompt = (systemPrompt) =>
+  ownerApi.put('/owner/system-prompt', { system_prompt: systemPrompt });
+
 export const ownerListFiles = () =>
   ownerApi.get('/owner/files');
 
