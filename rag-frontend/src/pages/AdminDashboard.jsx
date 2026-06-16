@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAdminStats, listUsers, setUserStatus, changeAdminPassword, createUser, listOwners, createOwner, setOwnerStatus, deleteOwner } from '../services/api';
+import { getAdminStats, listUsers, setUserStatus, changeAdminPassword, createUser, listOwners, createOwner, setOwnerStatus, deleteOwner, adminGetSystemPrompt, adminSetSystemPrompt } from '../services/api';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -25,6 +25,10 @@ export default function AdminDashboard() {
   const [pwError, setPwError] = useState('');
   const [pwSuccess, setPwSuccess] = useState('');
   const [pwLoading, setPwLoading] = useState(false);
+  const [promptDraft, setPromptDraft] = useState('');
+  const [promptSaving, setPromptSaving] = useState(false);
+  const [promptSaved, setPromptSaved] = useState(false);
+  const [promptLoaded, setPromptLoaded] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -34,6 +38,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (activeTab === 'users' && users.length === 0) fetchUsers();
     if (activeTab === 'owners' && owners.length === 0) fetchOwners();
+    if (activeTab === 'prompt' && !promptLoaded) fetchSystemPrompt();
   }, [activeTab]);
 
   const fetchStats = async () => {
@@ -72,6 +77,32 @@ export default function AdminDashboard() {
       // silently fail — UI stays unchanged
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  const fetchSystemPrompt = async () => {
+    try {
+      const res = await adminGetSystemPrompt();
+      setPromptDraft(res.data.system_prompt);
+      setPromptLoaded(true);
+    } catch {
+      // keep draft empty on error
+    }
+  };
+
+  const handleSavePrompt = async () => {
+    if (!promptDraft.trim()) return;
+    setPromptSaving(true);
+    setPromptSaved(false);
+    try {
+      const res = await adminSetSystemPrompt(promptDraft);
+      setPromptDraft(res.data.system_prompt);
+      setPromptSaved(true);
+      setTimeout(() => setPromptSaved(false), 3000);
+    } catch {
+      // silently fail
+    } finally {
+      setPromptSaving(false);
     }
   };
 
@@ -206,6 +237,12 @@ export default function AdminDashboard() {
               style={{ ...styles.navBtn, background: activeTab === 'owners' ? 'rgba(255,255,255,0.15)' : 'transparent' }}
             >
               🏢 Owners
+            </button>
+            <button
+              onClick={() => setActiveTab('prompt')}
+              style={{ ...styles.navBtn, background: activeTab === 'prompt' ? 'rgba(255,255,255,0.15)' : 'transparent' }}
+            >
+              📝 System Prompt
             </button>
             <button
               onClick={() => setActiveTab('settings')}
@@ -357,6 +394,39 @@ export default function AdminDashboard() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'prompt' && (
+          <div style={styles.section}>
+            <h2 style={styles.sectionTitle}>📝 System Prompt</h2>
+            <div style={promptStyles.card}>
+              <p style={promptStyles.desc}>
+                This prompt instructs the AI assistant on how to query and respond using the RAG documents.
+                Changes take effect immediately for all new chat sessions.
+              </p>
+              <textarea
+                value={promptDraft}
+                onChange={e => setPromptDraft(e.target.value)}
+                disabled={!promptLoaded || promptSaving}
+                style={promptStyles.textarea}
+                placeholder={promptLoaded ? '' : 'Loading...'}
+              />
+              <div style={promptStyles.actions}>
+                {promptSaved && <span style={promptStyles.savedBadge}>✓ Saved</span>}
+                <button
+                  onClick={handleSavePrompt}
+                  disabled={!promptLoaded || promptSaving || !promptDraft.trim()}
+                  style={{
+                    ...promptStyles.saveBtn,
+                    opacity: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 0.6 : 1,
+                    cursor: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {promptSaving ? 'Saving...' : 'Save Prompt'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -738,6 +808,61 @@ const styles = {
     border: 'none',
     color: 'white',
     fontSize: 13,
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+};
+
+const promptStyles = {
+  card: {
+    background: 'white',
+    borderRadius: 12,
+    boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+    padding: 24,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 16,
+    flex: 1,
+  },
+  desc: {
+    margin: 0,
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 1.6,
+  },
+  textarea: {
+    width: '100%',
+    minHeight: 280,
+    padding: '12px 14px',
+    borderRadius: 8,
+    border: '1.5px solid #dde1e7',
+    fontSize: 14,
+    fontFamily: 'monospace',
+    lineHeight: 1.6,
+    resize: 'vertical',
+    color: '#333',
+    background: '#fafbfc',
+    boxSizing: 'border-box',
+    outline: 'none',
+  },
+  actions: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  savedBadge: {
+    fontSize: 13,
+    color: '#48bb78',
+    fontWeight: '600',
+  },
+  saveBtn: {
+    padding: '10px 24px',
+    borderRadius: 8,
+    border: 'none',
+    background: 'linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%)',
+    color: 'white',
+    fontSize: 14,
     fontWeight: '600',
     cursor: 'pointer',
   },

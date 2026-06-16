@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerGetSystemPrompt, ownerSetSystemPrompt } from '../services/api';
+import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerListChats, ownerCreateChat, ownerGetMessages, ownerRenameChat, ownerGetReport } from '../services/api';
 
 const OWNER_FILE_API = {
   listFiles: ownerListFiles,
@@ -25,6 +25,14 @@ function useIsMobile() {
 export default function OwnerDashboard() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('chat');
+  const [chats, setChats] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [showNewChat, setShowNewChat] = useState(false);
+  const [newChatName, setNewChatName] = useState('');
+  const [showChatList, setShowChatList] = useState(false);
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [showConversations, setShowConversations] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
@@ -34,10 +42,8 @@ export default function OwnerDashboard() {
   const [topupAmount, setTopupAmount] = useState('10');
   const [toppingUpId, setToppingUpId] = useState(null);
   const [savingPlanId, setSavingPlanId] = useState(null);
-  const [promptDraft, setPromptDraft] = useState('');
-  const [promptSaving, setPromptSaving] = useState(false);
-  const [promptSaved, setPromptSaved] = useState(false);
-  const [promptLoaded, setPromptLoaded] = useState(false);
+  const [report, setReport] = useState(null);
+  const [loadingReport, setLoadingReport] = useState(false);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
@@ -46,11 +52,27 @@ export default function OwnerDashboard() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
+    ownerListChats()
+      .then(res => {
+        if (res.data.length === 0) {
+          return ownerCreateChat('General').then(r => {
+            setChats([r.data]);
+            setActiveChatId(r.data.id);
+          });
+        }
+        setChats(res.data);
+        setActiveChatId(prev => prev ?? res.data[0].id);
+      })
+      .catch(() => {});
+  }, [user?.id]);
+
+  useEffect(() => {
     if (activeTab === 'users' && users.length === 0) fetchUsers();
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab === 'prompt' && !promptLoaded) fetchSystemPrompt();
+    if (activeTab === 'reports') fetchReport();
   }, [activeTab]);
 
   const fetchUser = async () => {
@@ -131,29 +153,15 @@ export default function OwnerDashboard() {
     }
   };
 
-  const fetchSystemPrompt = async () => {
+  const fetchReport = async () => {
+    setLoadingReport(true);
     try {
-      const res = await ownerGetSystemPrompt();
-      setPromptDraft(res.data.system_prompt);
-      setPromptLoaded(true);
-    } catch {
-      // keep draft empty on error
-    }
-  };
-
-  const handleSavePrompt = async () => {
-    if (!promptDraft.trim()) return;
-    setPromptSaving(true);
-    setPromptSaved(false);
-    try {
-      const res = await ownerSetSystemPrompt(promptDraft);
-      setPromptDraft(res.data.system_prompt);
-      setPromptSaved(true);
-      setTimeout(() => setPromptSaved(false), 3000);
+      const res = await ownerGetReport();
+      setReport(res.data);
     } catch {
       // silently fail
     } finally {
-      setPromptSaving(false);
+      setLoadingReport(false);
     }
   };
 
@@ -161,6 +169,35 @@ export default function OwnerDashboard() {
     localStorage.removeItem('ownerToken');
     localStorage.removeItem('token');
     navigate('/owner/login');
+  };
+
+  const handleRename = async (chatId) => {
+    const trimmed = renameValue.trim();
+    setRenamingId(null);
+    if (!trimmed || trimmed === chats.find(c => c.id === chatId)?.name) return;
+    try {
+      await ownerRenameChat(chatId, trimmed);
+      setChats(prev => prev.map(c => c.id === chatId ? { ...c, name: trimmed } : c));
+    } catch {
+      // silently fail
+    }
+  };
+
+  const handleCreateChat = async () => {
+    if (!user) return;
+    const name = newChatName.trim() || 'New Chat';
+    try {
+      const res = await ownerCreateChat(name);
+      setChats(prev => [res.data, ...prev]);
+      setActiveChatId(res.data.id);
+      setActiveTab('chat');
+    } catch {
+      // silently fail
+    } finally {
+      setNewChatName('');
+      setShowNewChat(false);
+      setShowChatList(false);
+    }
   };
 
   if (isMobile) {
@@ -187,7 +224,93 @@ export default function OwnerDashboard() {
         <div style={mobile.main}>
           {activeTab === 'chat' && (
             <div style={mobile.chatWrapper}>
-              {user && <ChatBox userId={user.id} isUploading={isUploading} sendMessageFn={ownerSendMessage} />}
+              {/* Chat selector bar */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => { setShowChatList(v => !v); setShowNewChat(false); }}
+                  style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 13, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#333' }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    💬 {chats.find(c => c.id === activeChatId)?.name ?? 'Chat'}
+                  </span>
+                  <span style={{ fontSize: 10, flexShrink: 0, marginLeft: 4 }}>▾</span>
+                </button>
+                <button
+                  onClick={() => { setShowNewChat(v => !v); setShowChatList(false); }}
+                  style={{ background: '#134e5e', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 13, color: 'white', cursor: 'pointer', fontWeight: 'bold', flexShrink: 0 }}
+                >
+                  + New
+                </button>
+              </div>
+              {showChatList && (
+                <div style={{ flexShrink: 0, marginBottom: 8, background: '#fafafa', borderRadius: 8, border: '1px solid #eee', overflow: 'hidden' }}>
+                  {chats.map(chat => (
+                    <div key={chat.id} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #f0f0f0', background: activeChatId === chat.id ? '#e6f4f1' : 'transparent' }}>
+                      {renamingId === chat.id ? (
+                        <>
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') handleRename(chat.id);
+                              if (e.key === 'Escape') setRenamingId(null);
+                            }}
+                            style={{ flex: 1, padding: '7px 8px', border: 'none', background: 'transparent', fontSize: 13, outline: 'none', color: '#333' }}
+                          />
+                          <button onClick={() => handleRename(chat.id)} style={{ background: 'none', border: 'none', color: '#134e5e', fontSize: 14, padding: '4px 8px', cursor: 'pointer', fontWeight: 'bold' }}>✓</button>
+                          <button onClick={() => setRenamingId(null)} style={{ background: 'none', border: 'none', color: '#aaa', fontSize: 14, padding: '4px 10px 4px 0', cursor: 'pointer' }}>✕</button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => { setActiveChatId(chat.id); setShowChatList(false); }}
+                            style={{ flex: 1, padding: '9px 4px 9px 12px', border: 'none', background: 'transparent', color: activeChatId === chat.id ? '#134e5e' : '#333', fontSize: 13, textAlign: 'left', cursor: 'pointer', fontWeight: activeChatId === chat.id ? '600' : 'normal' }}
+                          >
+                            💬 {chat.name}
+                          </button>
+                          <button
+                            onClick={() => { setRenamingId(chat.id); setRenameValue(chat.name); }}
+                            title="Rename"
+                            style={{ background: 'none', border: 'none', color: '#bbb', fontSize: 13, padding: '4px 10px 4px 0', cursor: 'pointer', flexShrink: 0 }}
+                          >
+                            ✏️
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {showNewChat && (
+                <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexShrink: 0 }}>
+                  <input
+                    autoFocus
+                    value={newChatName}
+                    onChange={e => setNewChatName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleCreateChat();
+                      if (e.key === 'Escape') { setShowNewChat(false); setNewChatName(''); }
+                    }}
+                    placeholder="Chat name..."
+                    style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 13, outline: 'none' }}
+                  />
+                  <button onClick={handleCreateChat} style={{ background: '#134e5e', border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 13, color: 'white', fontWeight: 'bold' }}>✓</button>
+                  <button onClick={() => { setShowNewChat(false); setNewChatName(''); }} style={{ background: '#eee', border: 'none', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontSize: 13, color: '#666' }}>✕</button>
+                </div>
+              )}
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                {user && activeChatId && (
+                  <ChatBox
+                    key={activeChatId}
+                    userId={user.id}
+                    chatId={activeChatId}
+                    isUploading={isUploading}
+                    sendMessageFn={ownerSendMessage}
+                    getMessagesFn={ownerGetMessages}
+                  />
+                )}
+              </div>
             </div>
           )}
           {activeTab === 'files' && (
@@ -195,37 +318,6 @@ export default function OwnerDashboard() {
               <FileManager onUploadingChange={setIsUploading} apiOverrides={OWNER_FILE_API} />
             </div>
           )}
-          {activeTab === 'prompt' && (
-            <div style={mobile.filesWrapper}>
-              <span style={{ fontWeight: 'bold', fontSize: 15, color: '#134e5e', display: 'block', marginBottom: 10 }}>⚙️ System Prompt</span>
-              <p style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>
-                Controls how the AI responds. Changes take effect for all new chat sessions.
-              </p>
-              <textarea
-                value={promptDraft}
-                onChange={e => setPromptDraft(e.target.value)}
-                disabled={!promptLoaded || promptSaving}
-                style={{ ...promptStyles.textarea, minHeight: 220, fontSize: 13 }}
-                placeholder={promptLoaded ? '' : 'Loading...'}
-              />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
-                {promptSaved && <span style={promptStyles.savedBadge}>✓ Saved</span>}
-                <button
-                  onClick={handleSavePrompt}
-                  disabled={!promptLoaded || promptSaving || !promptDraft.trim()}
-                  style={{
-                    ...promptStyles.saveBtn,
-                    flex: 1,
-                    opacity: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 0.6 : 1,
-                    cursor: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {promptSaving ? 'Saving...' : 'Save Prompt'}
-                </button>
-              </div>
-            </div>
-          )}
-
           {activeTab === 'users' && (
             <div style={mobile.filesWrapper}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -334,6 +426,63 @@ export default function OwnerDashboard() {
               ))}
             </div>
           )}
+          {activeTab === 'reports' && (
+            <div style={mobile.filesWrapper}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ fontWeight: 'bold', fontSize: 15, color: '#134e5e' }}>📊 User Activity</span>
+                <button onClick={fetchReport} style={ownerUserStyles.refreshBtn}>↻</button>
+              </div>
+              {loadingReport ? (
+                <p style={{ color: '#888', fontSize: 14 }}>Loading...</p>
+              ) : report ? (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                    {[
+                      { label: 'Total Users', value: report.summary.total_users, icon: '👥', color: '#134e5e' },
+                      { label: 'Active Users', value: report.summary.active_users, icon: '✅', color: '#48bb78' },
+                      { label: 'Messages', value: report.summary.total_messages, icon: '💬', color: '#ed8936' },
+                      { label: 'Total Chats', value: report.summary.total_chats, icon: '📂', color: '#71b280' },
+                    ].map(card => (
+                      <div key={card.label} style={{ background: 'white', borderRadius: 10, padding: '14px 12px', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div style={{ fontSize: 18 }}>{card.icon}</div>
+                        <div style={{ fontSize: 22, fontWeight: 'bold', color: card.color }}>{card.value}</div>
+                        <div style={{ fontSize: 10, color: '#888', fontWeight: '600', textTransform: 'uppercase' }}>{card.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {report.users.length === 0 ? (
+                    <p style={{ color: '#aaa', textAlign: 'center', marginTop: 32 }}>No users found</p>
+                  ) : report.users.map(u => (
+                    <div key={u.id} style={{ ...ownerUserStyles.mobileCard, marginBottom: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                        <div style={ownerUserStyles.avatar}>{u.name?.charAt(0)?.toUpperCase() ?? '?'}</div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 'bold', fontSize: 13 }}>{u.name}</div>
+                          <div style={{ fontSize: 11, color: '#888' }}>{u.email}</div>
+                        </div>
+                        <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: '600', background: u.enabled ? '#c6f6d5' : '#fed7d7', color: u.enabled ? '#276749' : '#9b2c2c' }}>
+                          {u.enabled ? 'Active' : 'Disabled'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#666', flexWrap: 'wrap' }}>
+                        <span>Plan: <b style={{ color: PLAN_COLORS[u.plan]?.color ?? '#4a5568' }}>{u.plan?.charAt(0)?.toUpperCase() + u.plan?.slice(1)}</b></span>
+                        <span>🪙 {u.tokens}</span>
+                        <span>💬 {u.message_count} msgs</span>
+                        <span>📂 {u.chat_count} chats</span>
+                      </div>
+                      {u.last_active && (
+                        <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>
+                          Last active: {new Date(u.last_active).toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <p style={{ color: '#aaa', textAlign: 'center', marginTop: 32 }}>No data available</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Bottom Tab Bar */}
@@ -360,11 +509,11 @@ export default function OwnerDashboard() {
             <span style={mobile.tabLabel}>Users</span>
           </button>
           <button
-            onClick={() => setActiveTab('prompt')}
-            style={{ ...mobile.tab, ...(activeTab === 'prompt' ? mobile.tabActive : {}) }}
+            onClick={() => setActiveTab('reports')}
+            style={{ ...mobile.tab, ...(activeTab === 'reports' ? mobile.tabActive : {}) }}
           >
-            <span style={mobile.tabIcon}>⚙️</span>
-            <span style={mobile.tabLabel}>Prompt</span>
+            <span style={mobile.tabIcon}>📊</span>
+            <span style={mobile.tabLabel}>Reports</span>
           </button>
         </div>
       </div>
@@ -397,15 +546,88 @@ export default function OwnerDashboard() {
           )}
 
           <nav style={styles.nav}>
-            <button
-              onClick={() => setActiveTab('chat')}
-              style={{
-                ...styles.navBtn,
-                background: activeTab === 'chat' ? 'rgba(255,255,255,0.2)' : 'transparent'
-              }}
-            >
-              💬 Chat
-            </button>
+            {/* Conversations */}
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showConversations ? 6 : 0 }}>
+                <button
+                  onClick={() => setShowConversations(v => !v)}
+                  style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 5 }}
+                >
+                  <span style={{ fontSize: 10 }}>{showConversations ? '▾' : '▸'}</span>
+                  Conversations
+                </button>
+                {showConversations && (
+                  <button
+                    onClick={() => { setShowNewChat(v => !v); setNewChatName(''); }}
+                    style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 6, color: 'white', fontSize: 12, padding: '3px 8px', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    + New
+                  </button>
+                )}
+              </div>
+              {showConversations && (
+                <>
+                {showNewChat && (
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                    <input
+                      autoFocus
+                      value={newChatName}
+                      onChange={e => setNewChatName(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') handleCreateChat();
+                        if (e.key === 'Escape') { setShowNewChat(false); setNewChatName(''); }
+                      }}
+                      placeholder="Chat name..."
+                      style={{ flex: 1, padding: '6px 8px', borderRadius: 6, border: 'none', fontSize: 13, outline: 'none', color: '#333' }}
+                    />
+                    <button onClick={handleCreateChat} style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', color: '#134e5e', fontWeight: 'bold', fontSize: 13 }}>✓</button>
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 220, overflowY: 'auto' }}>
+                {chats.map(chat => (
+                  <div
+                    key={chat.id}
+                    style={{ display: 'flex', alignItems: 'center', borderRadius: 8, background: activeChatId === chat.id && activeTab === 'chat' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.07)' }}
+                  >
+                    {renamingId === chat.id ? (
+                      <>
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={e => setRenameValue(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleRename(chat.id);
+                            if (e.key === 'Escape') setRenamingId(null);
+                          }}
+                          style={{ flex: 1, padding: '6px 8px', borderRadius: 6, border: 'none', fontSize: 13, outline: 'none', color: '#333', background: 'rgba(255,255,255,0.9)', margin: '4px 0 4px 6px' }}
+                        />
+                        <button onClick={() => handleRename(chat.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.9)', fontSize: 14, padding: '4px 8px', cursor: 'pointer' }}>✓</button>
+                        <button onClick={() => setRenamingId(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 14, padding: '4px 8px 4px 0', cursor: 'pointer' }}>✕</button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => { setActiveChatId(chat.id); setActiveTab('chat'); }}
+                          style={{ ...styles.navBtn, flex: 1, background: 'transparent', fontSize: 13, padding: '9px 4px 9px 12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: activeChatId === chat.id ? 'bold' : 'normal' }}
+                        >
+                          💬 {chat.name}
+                        </button>
+                        <button
+                          onClick={() => { setRenamingId(chat.id); setRenameValue(chat.name); }}
+                          title="Rename"
+                          style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: 13, padding: '4px 10px 4px 4px', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}
+                        >
+                          ✏️
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+                </>
+              )}
+            </div>
+
             <button
               onClick={() => setActiveTab('files')}
               style={{
@@ -425,13 +647,13 @@ export default function OwnerDashboard() {
               👥 Users
             </button>
             <button
-              onClick={() => setActiveTab('prompt')}
+              onClick={() => setActiveTab('reports')}
               style={{
                 ...styles.navBtn,
-                background: activeTab === 'prompt' ? 'rgba(255,255,255,0.2)' : 'transparent'
+                background: activeTab === 'reports' ? 'rgba(255,255,255,0.2)' : 'transparent'
               }}
             >
-              ⚙️ System Prompt
+              📊 Reports
             </button>
           </nav>
         </div>
@@ -445,9 +667,18 @@ export default function OwnerDashboard() {
       <div style={styles.main}>
         {activeTab === 'chat' && (
           <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>💬 Chat with your documents</h2>
+            <h2 style={styles.sectionTitle}>💬 {chats.find(c => c.id === activeChatId)?.name ?? 'Chat'}</h2>
             <div style={styles.chatContainer}>
-              {user && <ChatBox userId={user.id} isUploading={isUploading} sendMessageFn={ownerSendMessage} />}
+              {user && activeChatId && (
+                <ChatBox
+                  key={activeChatId}
+                  userId={user.id}
+                  chatId={activeChatId}
+                  isUploading={isUploading}
+                  sendMessageFn={ownerSendMessage}
+                  getMessagesFn={ownerGetMessages}
+                />
+              )}
             </div>
           </div>
         )}
@@ -456,39 +687,6 @@ export default function OwnerDashboard() {
           <div style={styles.section}>
             <h2 style={styles.sectionTitle}>📁 My Files</h2>
             <FileManager onUploadingChange={setIsUploading} apiOverrides={OWNER_FILE_API} />
-          </div>
-        )}
-
-        {activeTab === 'prompt' && (
-          <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>⚙️ System Prompt</h2>
-            <div style={promptStyles.card}>
-              <p style={promptStyles.desc}>
-                This prompt instructs the AI assistant on how to query and respond using the RAG documents.
-                Changes take effect immediately for all new chat sessions.
-              </p>
-              <textarea
-                value={promptDraft}
-                onChange={e => setPromptDraft(e.target.value)}
-                disabled={!promptLoaded || promptSaving}
-                style={promptStyles.textarea}
-                placeholder={promptLoaded ? '' : 'Loading...'}
-              />
-              <div style={promptStyles.actions}>
-                {promptSaved && <span style={promptStyles.savedBadge}>✓ Saved</span>}
-                <button
-                  onClick={handleSavePrompt}
-                  disabled={!promptLoaded || promptSaving || !promptDraft.trim()}
-                  style={{
-                    ...promptStyles.saveBtn,
-                    opacity: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 0.6 : 1,
-                    cursor: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {promptSaving ? 'Saving...' : 'Save Prompt'}
-                </button>
-              </div>
-            </div>
           </div>
         )}
 
@@ -625,64 +823,94 @@ export default function OwnerDashboard() {
             )}
           </div>
         )}
+
+        {activeTab === 'reports' && (
+          <div style={styles.section}>
+            <div style={ownerUserStyles.sectionHeader}>
+              <h2 style={styles.sectionTitle}>📊 User Activity Report</h2>
+              <button onClick={fetchReport} style={ownerUserStyles.refreshBtn}>↻ Refresh</button>
+            </div>
+            {loadingReport ? (
+              <p style={{ color: '#888' }}>Loading report...</p>
+            ) : report ? (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16, marginBottom: 28 }}>
+                  {[
+                    { label: 'Total Users', value: report.summary.total_users, icon: '👥', color: '#134e5e' },
+                    { label: 'Active Users', value: report.summary.active_users, icon: '✅', color: '#48bb78' },
+                    { label: 'Messages Sent', value: report.summary.total_messages, icon: '💬', color: '#ed8936' },
+                    { label: 'Total Chats', value: report.summary.total_chats, icon: '📂', color: '#71b280' },
+                  ].map(card => (
+                    <div key={card.label} style={{ background: 'white', borderRadius: 12, padding: '20px 18px', boxShadow: '0 2px 10px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ fontSize: 24 }}>{card.icon}</div>
+                      <div style={{ fontSize: 30, fontWeight: 'bold', color: card.color }}>{card.value}</div>
+                      <div style={{ fontSize: 11, color: '#888', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{card.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ background: 'white', borderRadius: 12, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', overflow: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+                    <thead>
+                      <tr style={{ background: '#fafafa' }}>
+                        {['User', 'Status', 'Plan', 'Tokens', 'Chats', 'Messages', 'Last Active', 'Joined'].map(col => (
+                          <th key={col} style={{ padding: '12px 14px', textAlign: 'left', fontSize: 11, fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #eee' }}>
+                            {col}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.users.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 14 }}>No users found</td>
+                        </tr>
+                      ) : report.users.map(u => (
+                        <tr key={u.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg, #134e5e, #71b280)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: 13, flexShrink: 0 }}>
+                                {u.name?.charAt(0)?.toUpperCase() ?? '?'}
+                              </div>
+                              <div>
+                                <div style={{ fontWeight: '600', fontSize: 13, color: '#333' }}>{u.name}</div>
+                                <div style={{ fontSize: 11, color: '#aaa' }}>{u.email}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
+                            <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: '600', background: u.enabled ? '#c6f6d5' : '#fed7d7', color: u.enabled ? '#276749' : '#9b2c2c' }}>
+                              {u.enabled ? 'Active' : 'Disabled'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
+                            <span style={{ fontSize: 13, fontWeight: '600', color: PLAN_COLORS[u.plan]?.color ?? '#4a5568' }}>
+                              {u.plan?.charAt(0)?.toUpperCase() + u.plan?.slice(1)}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle', fontSize: 13, color: '#555' }}>🪙 {u.tokens}</td>
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle', fontSize: 14, fontWeight: '600', color: '#333' }}>{u.chat_count}</td>
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle', fontSize: 14, fontWeight: '600', color: '#333' }}>{u.message_count}</td>
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle', fontSize: 12, color: u.last_active ? '#555' : '#ccc' }}>
+                            {u.last_active ? new Date(u.last_active).toLocaleDateString() : '—'}
+                          </td>
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle', fontSize: 12, color: '#999' }}>
+                            {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <p style={{ color: '#aaa' }}>No data available. Click Refresh to load.</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
-
-const promptStyles = {
-  card: {
-    background: 'white',
-    borderRadius: 12,
-    boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
-    padding: 24,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 16,
-    flex: 1,
-  },
-  desc: {
-    margin: 0,
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 1.6,
-  },
-  textarea: {
-    width: '100%',
-    minHeight: 280,
-    padding: '12px 14px',
-    borderRadius: 8,
-    border: '1.5px solid #dde1e7',
-    fontSize: 14,
-    fontFamily: 'monospace',
-    lineHeight: 1.6,
-    resize: 'vertical',
-    color: '#333',
-    background: '#fafbfc',
-    boxSizing: 'border-box',
-    outline: 'none',
-  },
-  actions: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 12,
-  },
-  savedBadge: {
-    fontSize: 13,
-    color: '#48bb78',
-    fontWeight: '600',
-  },
-  saveBtn: {
-    padding: '10px 24px',
-    borderRadius: 8,
-    border: 'none',
-    background: 'linear-gradient(135deg, #134e5e, #71b280)',
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-};
 
 const PLAN_COLORS = {
   free:  { background: '#edf2f7', color: '#4a5568' },

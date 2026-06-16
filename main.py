@@ -5,6 +5,7 @@ RAG Chatbot API — FastAPI entry point.
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+import json
 import logging
 import os
 import shutil
@@ -22,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from database import get_db, User, Admin, Owner, SessionLocal, engine
+from database import get_db, User, Admin, Owner, ChatSession, ChatMessage, SessionLocal, engine
 from auth import hash_password, verify_password, create_access_token, get_current_user, get_current_owner, get_current_admin
 from indexer import delete_user_files, index_user_files, SUPPORTED_EXTENSIONS
 
@@ -149,6 +150,13 @@ class LoginRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     question: str
+    chat_id: Optional[str] = None
+
+class CreateChatRequest(BaseModel):
+    name: str
+
+class RenameChatRequest(BaseModel):
+    name: str
 
 class AdminLoginRequest(BaseModel):
     username: str
@@ -275,13 +283,14 @@ def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: S
             raise HTTPException(status_code=402, detail="No tokens remaining. Contact your owner to top up.")
 
     try:
+        session_key = req.chat_id if req.chat_id else str(current_user.id)
         if is_owner:
             # Owner chats against their own uploaded files
-            engine = get_chat_engine(str(current_user.id), [str(current_user.id)])
+            engine = get_chat_engine(session_key, [str(current_user.id)])
         else:
             # Regular user: query all enabled owners' files (the shared knowledge base)
             owner_ids = [str(o.id) for o in db.query(Owner).filter(Owner.enabled == True).all()]
-            engine = get_chat_engine(str(current_user.id), owner_ids or [str(current_user.id)])
+            engine = get_chat_engine(session_key, owner_ids or [str(current_user.id)])
         response = engine.chat(req.question)
 
         # Step 1: Build file → correct reference number mapping
@@ -330,6 +339,20 @@ def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: S
             db.add(current_user)
             db.commit()
             tokens_remaining = current_user.tokens
+
+        # Persist messages when a named chat session is active
+        if req.chat_id:
+            try:
+                db.add(ChatMessage(session_id=req.chat_id, role="user", content=req.question))
+                db.add(ChatMessage(
+                    session_id=req.chat_id,
+                    role="bot",
+                    content=answer,
+                    sources=json.dumps(sources) if sources else None,
+                ))
+                db.commit()
+            except Exception:
+                logger.warning("Failed to persist messages for chat_id %s", req.chat_id)
 
         return {
             "answer": answer,
@@ -736,16 +759,16 @@ def owner_delete_user(
     return {"message": "User deleted"}
 
 
-# ── Owner → System Prompt ─────────────────────────────────────
-@app.get("/owner/system-prompt")
-def owner_get_system_prompt(current_owner: Owner = Depends(get_current_owner)):
+# ── Admin → System Prompt ─────────────────────────────────────
+@app.get("/admin/system-prompt")
+def admin_get_system_prompt(current_admin: Admin = Depends(get_current_admin)):
     return {"system_prompt": _system_prompt}
 
 
-@app.put("/owner/system-prompt")
-def owner_set_system_prompt(
+@app.put("/admin/system-prompt")
+def admin_set_system_prompt(
     req: SystemPromptRequest,
-    current_owner: Owner = Depends(get_current_owner),
+    current_admin: Admin = Depends(get_current_admin),
 ):
     global _system_prompt
     prompt = req.system_prompt.strip()
@@ -755,6 +778,161 @@ def owner_set_system_prompt(
     SYSTEM_PROMPT_FILE.write_text(prompt, encoding="utf-8")
     sessions.clear()
     return {"system_prompt": _system_prompt}
+
+
+# ── Chat Sessions ─────────────────────────────────────────────
+@app.get("/chats")
+def list_chats(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    actor_type = "owner" if isinstance(current_user, Owner) else "user"
+    rows = (
+        db.query(ChatSession)
+        .filter(ChatSession.actor_id == current_user.id, ChatSession.actor_type == actor_type)
+        .order_by(ChatSession.created_at.desc())
+        .all()
+    )
+    return [{"id": s.id, "name": s.name, "created_at": s.created_at} for s in rows]
+
+
+@app.post("/chats", status_code=201)
+def create_chat(
+    req: CreateChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    actor_type = "owner" if isinstance(current_user, Owner) else "user"
+    import uuid as _uuid
+    session = ChatSession(
+        id=str(_uuid.uuid4()),
+        actor_id=current_user.id,
+        actor_type=actor_type,
+        name=req.name,
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return {"id": session.id, "name": session.name, "created_at": session.created_at}
+
+
+@app.get("/chats/{chat_id}/messages")
+def get_chat_messages(
+    chat_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    actor_type = "owner" if isinstance(current_user, Owner) else "user"
+    session = db.query(ChatSession).filter(
+        ChatSession.id == chat_id,
+        ChatSession.actor_id == current_user.id,
+        ChatSession.actor_type == actor_type,
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    messages = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == chat_id)
+        .order_by(ChatMessage.created_at.asc())
+        .all()
+    )
+    return [
+        {
+            "id": m.id,
+            "role": m.role,
+            "content": m.content,
+            "sources": json.loads(m.sources) if m.sources else [],
+            "created_at": m.created_at,
+        }
+        for m in messages
+    ]
+
+
+@app.put("/chats/{chat_id}")
+def rename_chat(
+    chat_id: str,
+    req: RenameChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    actor_type = "owner" if isinstance(current_user, Owner) else "user"
+    session = db.query(ChatSession).filter(
+        ChatSession.id == chat_id,
+        ChatSession.actor_id == current_user.id,
+        ChatSession.actor_type == actor_type,
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    name = req.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    session.name = name
+    db.commit()
+    return {"id": session.id, "name": session.name, "created_at": session.created_at}
+
+
+@app.delete("/chats/{chat_id}")
+def delete_chat(
+    chat_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    actor_type = "owner" if isinstance(current_user, Owner) else "user"
+    session = db.query(ChatSession).filter(
+        ChatSession.id == chat_id,
+        ChatSession.actor_id == current_user.id,
+        ChatSession.actor_type == actor_type,
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    db.query(ChatMessage).filter(ChatMessage.session_id == chat_id).delete()
+    db.delete(session)
+    db.commit()
+    sessions.pop(chat_id, None)
+    return {"message": "Chat deleted"}
+
+
+@app.get("/owner/reports")
+def owner_reports(
+    current_owner: Owner = Depends(get_current_owner),
+    db: Session = Depends(get_db),
+):
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    user_report = []
+    for u in users:
+        user_sessions = db.query(ChatSession).filter(
+            ChatSession.actor_id == u.id,
+            ChatSession.actor_type == "user",
+        ).all()
+        session_ids = [s.id for s in user_sessions]
+        msg_count = 0
+        last_active = None
+        if session_ids:
+            msgs = db.query(ChatMessage).filter(
+                ChatMessage.session_id.in_(session_ids),
+                ChatMessage.role == "user",
+            ).all()
+            msg_count = len(msgs)
+            if msgs:
+                last_active = max(m.created_at for m in msgs)
+        user_report.append({
+            "id": u.id,
+            "name": u.name,
+            "email": u.email,
+            "enabled": u.enabled,
+            "plan": u.plan,
+            "tokens": u.tokens,
+            "chat_count": len(user_sessions),
+            "message_count": msg_count,
+            "last_active": last_active,
+            "created_at": u.created_at,
+        })
+    return {
+        "summary": {
+            "total_users": len(users),
+            "active_users": sum(1 for u in users if u.enabled),
+            "total_messages": sum(r["message_count"] for r in user_report),
+            "total_chats": sum(r["chat_count"] for r in user_report),
+        },
+        "users": user_report,
+    }
 
 
 @app.get("/health")

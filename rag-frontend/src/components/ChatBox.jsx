@@ -1,22 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { sendMessage } from '../services/api';
+import { sendMessage, getMessages } from '../services/api';
 import chatIcon from '../assets/chatting.jpg';
 
 const WELCOME = { role: 'bot', text: 'Hello! Ask me anything about your documents.' };
 
-const loadHistory = (userId) => {
-  try {
-    const saved = localStorage.getItem(`chat_history_${userId}`);
-    return saved ? JSON.parse(saved) : [WELCOME];
-  } catch {
-    return [WELCOME];
-  }
-};
-
-export default function ChatBox({ userId, isUploading, sendMessageFn = sendMessage, tokens, onTokenUsed }) {
-  const [messages, setMessages] = useState(() => loadHistory(userId));
+export default function ChatBox({ userId, chatId, isUploading, sendMessageFn = sendMessage, getMessagesFn = getMessages, tokens, onTokenUsed }) {
+  const [messages, setMessages] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
@@ -24,8 +16,19 @@ export default function ChatBox({ userId, isUploading, sendMessageFn = sendMessa
   const outOfTokens = tokens !== undefined && tokens <= 0;
 
   useEffect(() => {
-    localStorage.setItem(`chat_history_${userId}`, JSON.stringify(messages));
-  }, [messages, userId]);
+    if (!chatId) return;
+    let cancelled = false;
+    setLoadingHistory(true);
+    getMessagesFn(chatId)
+      .then(res => {
+        if (cancelled) return;
+        const mapped = res.data.map(m => ({ role: m.role, text: m.content, sources: m.sources || [] }));
+        setMessages(mapped.length > 0 ? mapped : [WELCOME]);
+      })
+      .catch(() => { if (!cancelled) setMessages([WELCOME]); })
+      .finally(() => { if (!cancelled) setLoadingHistory(false); });
+    return () => { cancelled = true; };
+  }, [chatId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -44,7 +47,7 @@ export default function ChatBox({ userId, isUploading, sendMessageFn = sendMessa
     setLoading(true);
 
     try {
-      const res = await sendMessageFn(question);
+      const res = await sendMessageFn(question, chatId);
       setMessages(prev => [...prev, {
         role: 'bot',
         text: res.data.answer,
@@ -82,7 +85,12 @@ export default function ChatBox({ userId, isUploading, sendMessageFn = sendMessa
       )}
       {/* Messages */}
       <div style={styles.messages}>
-        {messages.map((msg, i) => (
+        {loadingHistory && (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <p style={{ color: '#aaa', fontSize: 14 }}>Loading history...</p>
+          </div>
+        )}
+        {!loadingHistory && messages.map((msg, i) => (
           <div key={i} style={{
             ...styles.messageRow,
             justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'

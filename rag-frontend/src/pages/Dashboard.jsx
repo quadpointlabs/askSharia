@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMe } from '../services/api';
+import { getMe, listChats, createChat as apiCreateChat, renameChat as apiRenameChat } from '../services/api';
 import chatIcon from '../assets/chatting.jpg';
 import ChatBox from '../components/ChatBox';
 
@@ -17,12 +17,36 @@ function useIsMobile() {
 export default function Dashboard() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('chat');
+  const [chats, setChats] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [showNewChat, setShowNewChat] = useState(false);
+  const [newChatName, setNewChatName] = useState('');
+  const [showChatList, setShowChatList] = useState(false);
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [showConversations, setShowConversations] = useState(true);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchUser();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    listChats()
+      .then(res => {
+        if (res.data.length === 0) {
+          return apiCreateChat('General').then(r => {
+            setChats([r.data]);
+            setActiveChatId(r.data.id);
+          });
+        }
+        setChats(res.data);
+        setActiveChatId(prev => prev ?? res.data[0].id);
+      })
+      .catch(() => {});
+  }, [user?.id]);
 
   const fetchUser = async () => {
     try {
@@ -37,6 +61,35 @@ export default function Dashboard() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     navigate('/');
+  };
+
+  const handleRename = async (chatId) => {
+    const trimmed = renameValue.trim();
+    setRenamingId(null);
+    if (!trimmed || trimmed === chats.find(c => c.id === chatId)?.name) return;
+    try {
+      await apiRenameChat(chatId, trimmed);
+      setChats(prev => prev.map(c => c.id === chatId ? { ...c, name: trimmed } : c));
+    } catch {
+      // silently fail — UI shows old name
+    }
+  };
+
+  const handleCreateChat = async () => {
+    if (!user) return;
+    const name = newChatName.trim() || 'New Chat';
+    try {
+      const res = await apiCreateChat(name);
+      setChats(prev => [res.data, ...prev]);
+      setActiveChatId(res.data.id);
+      setActiveTab('chat');
+    } catch {
+      // silently fail
+    } finally {
+      setNewChatName('');
+      setShowNewChat(false);
+      setShowChatList(false);
+    }
   };
 
   if (isMobile) {
@@ -66,14 +119,93 @@ export default function Dashboard() {
         <div style={mobile.main}>
           {activeTab === 'chat' && (
             <div style={mobile.chatWrapper}>
-              {user && (
-                <ChatBox
-                  userId={user.id}
-                  isUploading={false}
-                  tokens={user.tokens ?? 0}
-                  onTokenUsed={(remaining) => setUser(u => ({ ...u, tokens: remaining }))}
-                />
+              {/* Chat selector bar */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => { setShowChatList(v => !v); setShowNewChat(false); }}
+                  style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 13, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#333' }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    💬 {chats.find(c => c.id === activeChatId)?.name ?? 'Chat'}
+                  </span>
+                  <span style={{ fontSize: 10, flexShrink: 0, marginLeft: 4 }}>▾</span>
+                </button>
+                <button
+                  onClick={() => { setShowNewChat(v => !v); setShowChatList(false); }}
+                  style={{ background: '#667eea', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 13, color: 'white', cursor: 'pointer', fontWeight: 'bold', flexShrink: 0 }}
+                >
+                  + New
+                </button>
+              </div>
+              {showChatList && (
+                <div style={{ flexShrink: 0, marginBottom: 8, background: '#fafafa', borderRadius: 8, border: '1px solid #eee', overflow: 'hidden' }}>
+                  {chats.map(chat => (
+                    <div key={chat.id} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #f0f0f0', background: activeChatId === chat.id ? '#eff2ff' : 'transparent' }}>
+                      {renamingId === chat.id ? (
+                        <>
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') handleRename(chat.id);
+                              if (e.key === 'Escape') setRenamingId(null);
+                            }}
+                            style={{ flex: 1, padding: '7px 8px', border: 'none', background: 'transparent', fontSize: 13, outline: 'none', color: '#333' }}
+                          />
+                          <button onClick={() => handleRename(chat.id)} style={{ background: 'none', border: 'none', color: '#667eea', fontSize: 14, padding: '4px 8px', cursor: 'pointer', fontWeight: 'bold' }}>✓</button>
+                          <button onClick={() => setRenamingId(null)} style={{ background: 'none', border: 'none', color: '#aaa', fontSize: 14, padding: '4px 10px 4px 0', cursor: 'pointer' }}>✕</button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => { setActiveChatId(chat.id); setShowChatList(false); }}
+                            style={{ flex: 1, padding: '9px 4px 9px 12px', border: 'none', background: 'transparent', color: activeChatId === chat.id ? '#667eea' : '#333', fontSize: 13, textAlign: 'left', cursor: 'pointer', fontWeight: activeChatId === chat.id ? '600' : 'normal' }}
+                          >
+                            💬 {chat.name}
+                          </button>
+                          <button
+                            onClick={() => { setRenamingId(chat.id); setRenameValue(chat.name); }}
+                            title="Rename"
+                            style={{ background: 'none', border: 'none', color: '#bbb', fontSize: 13, padding: '4px 10px 4px 0', cursor: 'pointer', flexShrink: 0 }}
+                          >
+                            ✏️
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
+              {showNewChat && (
+                <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexShrink: 0 }}>
+                  <input
+                    autoFocus
+                    value={newChatName}
+                    onChange={e => setNewChatName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleCreateChat();
+                      if (e.key === 'Escape') { setShowNewChat(false); setNewChatName(''); }
+                    }}
+                    placeholder="Chat name..."
+                    style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 13, outline: 'none' }}
+                  />
+                  <button onClick={handleCreateChat} style={{ background: '#667eea', border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 13, color: 'white', fontWeight: 'bold' }}>✓</button>
+                  <button onClick={() => { setShowNewChat(false); setNewChatName(''); }} style={{ background: '#eee', border: 'none', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontSize: 13, color: '#666' }}>✕</button>
+                </div>
+              )}
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                {user && activeChatId && (
+                  <ChatBox
+                    key={activeChatId}
+                    userId={user.id}
+                    chatId={activeChatId}
+                    isUploading={false}
+                    tokens={user.tokens ?? 0}
+                    onTokenUsed={(remaining) => setUser(u => ({ ...u, tokens: remaining }))}
+                  />
+                )}
+              </div>
             </div>
           )}
           {activeTab === 'tokens' && (
@@ -145,12 +277,88 @@ export default function Dashboard() {
           )}
 
           <nav style={styles.nav}>
-            <button
-              onClick={() => setActiveTab('chat')}
-              style={{ ...styles.navBtn, background: activeTab === 'chat' ? 'rgba(255,255,255,0.2)' : 'transparent' }}
-            >
-              💬 Chat
-            </button>
+            {/* Conversations */}
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showConversations ? 6 : 0 }}>
+                <button
+                  onClick={() => setShowConversations(v => !v)}
+                  style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 5 }}
+                >
+                  <span style={{ fontSize: 10 }}>{showConversations ? '▾' : '▸'}</span>
+                  Conversations
+                </button>
+                {showConversations && (
+                  <button
+                    onClick={() => { setShowNewChat(v => !v); setNewChatName(''); }}
+                    style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 6, color: 'white', fontSize: 12, padding: '3px 8px', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    + New
+                  </button>
+                )}
+              </div>
+              {showConversations && (
+                <>
+                {showNewChat && (
+                <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                  <input
+                    autoFocus
+                    value={newChatName}
+                    onChange={e => setNewChatName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleCreateChat();
+                      if (e.key === 'Escape') { setShowNewChat(false); setNewChatName(''); }
+                    }}
+                    placeholder="Chat name..."
+                    style={{ flex: 1, padding: '6px 8px', borderRadius: 6, border: 'none', fontSize: 13, outline: 'none', color: '#333' }}
+                  />
+                  <button onClick={handleCreateChat} style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', color: '#667eea', fontWeight: 'bold', fontSize: 13 }}>✓</button>
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 220, overflowY: 'auto' }}>
+                {chats.map(chat => (
+                  <div
+                    key={chat.id}
+                    style={{ display: 'flex', alignItems: 'center', borderRadius: 8, background: activeChatId === chat.id && activeTab === 'chat' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.07)' }}
+                  >
+                    {renamingId === chat.id ? (
+                      <>
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={e => setRenameValue(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleRename(chat.id);
+                            if (e.key === 'Escape') setRenamingId(null);
+                          }}
+                          style={{ flex: 1, padding: '6px 8px', borderRadius: 6, border: 'none', fontSize: 13, outline: 'none', color: '#333', background: 'rgba(255,255,255,0.9)', margin: '4px 0 4px 6px' }}
+                        />
+                        <button onClick={() => handleRename(chat.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.9)', fontSize: 14, padding: '4px 8px', cursor: 'pointer' }}>✓</button>
+                        <button onClick={() => setRenamingId(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 14, padding: '4px 8px 4px 0', cursor: 'pointer' }}>✕</button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => { setActiveChatId(chat.id); setActiveTab('chat'); }}
+                          style={{ ...styles.navBtn, flex: 1, background: 'transparent', fontSize: 13, padding: '9px 4px 9px 12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: activeChatId === chat.id ? 'bold' : 'normal' }}
+                        >
+                          💬 {chat.name}
+                        </button>
+                        <button
+                          onClick={() => { setRenamingId(chat.id); setRenameValue(chat.name); }}
+                          title="Rename"
+                          style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: 13, padding: '4px 10px 4px 4px', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}
+                        >
+                          ✏️
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+                </>
+              )}
+            </div>
+
             <button
               onClick={() => setActiveTab('tokens')}
               style={{ ...styles.navBtn, background: activeTab === 'tokens' ? 'rgba(255,255,255,0.2)' : 'transparent' }}
@@ -175,11 +383,13 @@ export default function Dashboard() {
       <div style={styles.main}>
         {activeTab === 'chat' && (
           <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>💬 Chat with your documents</h2>
+            <h2 style={styles.sectionTitle}>💬 {chats.find(c => c.id === activeChatId)?.name ?? 'Chat'}</h2>
             <div style={styles.chatContainer}>
-              {user && (
+              {user && activeChatId && (
                 <ChatBox
+                  key={activeChatId}
                   userId={user.id}
+                  chatId={activeChatId}
                   isUploading={false}
                   tokens={user.tokens ?? 0}
                   onTokenUsed={(remaining) => setUser(u => ({ ...u, tokens: remaining }))}

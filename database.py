@@ -46,6 +46,25 @@ class Admin(Base):
     username = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)
 
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+    id = Column(String, primary_key=True)
+    actor_id = Column(String, nullable=False)
+    actor_type = Column(String, nullable=False, default="user")
+    name = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id = Column(String, nullable=False)
+    role = Column(String, nullable=False)
+    content = Column(String, nullable=False)
+    sources = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 try:
     Base.metadata.create_all(bind=engine)
 except Exception:

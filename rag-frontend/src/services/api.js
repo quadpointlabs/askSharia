@@ -57,12 +57,6 @@ export const ownerTopUpTokens = (userId, amount) =>
 export const ownerSetUserPlan = (userId, plan) =>
   ownerApi.put(`/owner/users/${userId}/plan`, { plan });
 
-export const ownerGetSystemPrompt = () =>
-  ownerApi.get('/owner/system-prompt');
-
-export const ownerSetSystemPrompt = (systemPrompt) =>
-  ownerApi.put('/owner/system-prompt', { system_prompt: systemPrompt });
-
 export const ownerListFiles = () =>
   ownerApi.get('/owner/files');
 
@@ -81,11 +75,25 @@ export const ownerDownloadFile = (filename) =>
   ownerApi.get(`/owner/files/${filename}/download`, { responseType: 'blob' });
 
 // Chat
-export const sendMessage = (question) =>
-  api.post('/chat', { question });
+export const sendMessage = (question, chatId) =>
+  api.post('/chat', { question, chat_id: chatId ?? null });
 
-export const ownerSendMessage = (question) =>
-  ownerApi.post('/chat', { question });
+export const ownerSendMessage = (question, chatId) =>
+  ownerApi.post('/chat', { question, chat_id: chatId ?? null });
+
+// Chat Sessions
+export const listChats = () => api.get('/chats');
+export const createChat = (name) => api.post('/chats', { name });
+export const getMessages = (chatId) => api.get(`/chats/${chatId}/messages`);
+export const deleteChat = (chatId) => api.delete(`/chats/${chatId}`);
+export const renameChat = (chatId, name) => api.put(`/chats/${chatId}`, { name });
+
+export const ownerListChats = () => ownerApi.get('/chats');
+export const ownerCreateChat = (name) => ownerApi.post('/chats', { name });
+export const ownerGetMessages = (chatId) => ownerApi.get(`/chats/${chatId}/messages`);
+export const ownerDeleteChat = (chatId) => ownerApi.delete(`/chats/${chatId}`);
+export const ownerRenameChat = (chatId, name) => ownerApi.put(`/chats/${chatId}`, { name });
+export const ownerGetReport = () => ownerApi.get('/owner/reports');
 
 // Files
 export const uploadFile = (file) => {
@@ -143,3 +151,9 @@ export const setOwnerStatus = (ownerId, enabled) =>
 
 export const deleteOwner = (ownerId) =>
   adminApi.delete(`/admin/owners/${ownerId}`);
+
+export const adminGetSystemPrompt = () =>
+  adminApi.get('/admin/system-prompt');
+
+export const adminSetSystemPrompt = (systemPrompt) =>
+  adminApi.put('/admin/system-prompt', { system_prompt: systemPrompt });
