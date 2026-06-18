@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Default server is Sharea. Switch with: vite --mode qpl  |  vite --mode localhost
 // Sharea (.env): http://51.17.251.190:8001  |  QPL (.env.qpl): http://51.84.201.250:8001  |  Local (.env.localhost): http://localhost:8001
-const API_URL = import.meta.env.VITE_API_URL || 'http://51.17.251.190:8001';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 const api = axios.create({
   baseURL: API_URL,
