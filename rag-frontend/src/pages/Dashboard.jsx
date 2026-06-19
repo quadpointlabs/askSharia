@@ -28,7 +28,7 @@ export default function Dashboard() {
   const [showConversations, setShowConversations] = useState(true);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
-  const { lang, setLang, t, isRTL } = useLang();
+  const { lang, setLang, t, isRTL } = useLang('userLang');
 
   useEffect(() => {
     fetchUser();

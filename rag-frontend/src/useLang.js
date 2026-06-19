@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import translations from './i18n';
 
-export default function useLang() {
-  const [lang, setLangState] = useState(() => localStorage.getItem('lang') || 'en');
+export default function useLang(storageKey = 'lang') {
+  const [lang, setLangState] = useState(() => localStorage.getItem(storageKey) || 'en');
   const setLang = (l) => {
-    localStorage.setItem('lang', l);
+    localStorage.setItem(storageKey, l);
     setLangState(l);
   };
   const t = translations[lang];

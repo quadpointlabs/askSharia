@@ -47,7 +47,7 @@ export default function OwnerDashboard() {
   const [loadingReport, setLoadingReport] = useState(false);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
-  const { lang, setLang, t, isRTL } = useLang();
+  const { lang, setLang, t, isRTL } = useLang('ownerLang');
 
   useEffect(() => {
     fetchUser();
