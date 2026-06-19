@@ -11,6 +11,7 @@ const OWNER_FILE_API = {
 import chatIcon from '../assets/chatting.jpg';
 import ChatBox from '../components/ChatBox';
 import FileManager from '../components/FileManager';
+import useLang from '../useLang';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640);
@@ -46,6 +47,7 @@ export default function OwnerDashboard() {
   const [loadingReport, setLoadingReport] = useState(false);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const { lang, setLang, t, isRTL } = useLang();
 
   useEffect(() => {
     fetchUser();
@@ -113,7 +115,7 @@ export default function OwnerDashboard() {
   };
 
   const handleDeleteUser = async (userId) => {
-    if (!window.confirm('Delete this user permanently?')) return;
+    if (!window.confirm(t.deleteConfirm)) return;
     setDeletingId(userId);
     try {
       await ownerDeleteUser(userId);
@@ -200,22 +202,29 @@ export default function OwnerDashboard() {
     }
   };
 
+  const langToggleBtn = (style) => (
+    <button onClick={() => setLang(lang === 'en' ? 'ar' : 'en')} style={style}>
+      {lang === 'en' ? 'العربية' : 'English'}
+    </button>
+  );
+
   if (isMobile) {
     return (
-      <div style={mobile.container}>
+      <div style={mobile.container} dir={isRTL ? 'rtl' : 'ltr'}>
         {/* Top Header */}
         <div style={mobile.header}>
           <div style={mobile.headerLeft}>
             <img src={chatIcon} alt="bot" style={mobile.headerIcon} />
             <div>
               <span style={mobile.headerTitle}>RAG Bot</span>
-              <span style={mobile.pageLabel}>Owner Page</span>
+              <span style={mobile.pageLabel}>{t.ownerPage}</span>
             </div>
           </div>
           {user && (
             <div style={mobile.headerRight}>
+              {langToggleBtn(mobileLangBtn)}
               <div style={mobile.userAvatar}>{user.name.charAt(0).toUpperCase()}</div>
-              <button onClick={handleLogout} style={mobile.logoutBtn} title="Logout">🚪</button>
+              <button onClick={handleLogout} style={mobile.logoutBtn} title={t.logout}>🚪</button>
             </div>
           )}
         </div>
@@ -228,10 +237,10 @@ export default function OwnerDashboard() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexShrink: 0 }}>
                 <button
                   onClick={() => { setShowChatList(v => !v); setShowNewChat(false); }}
-                  style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 13, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#333' }}
+                  style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 13, textAlign: isRTL ? 'right' : 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#333' }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    💬 {chats.find(c => c.id === activeChatId)?.name ?? 'Chat'}
+                    💬 {chats.find(c => c.id === activeChatId)?.name ?? t.chat}
                   </span>
                   <span style={{ fontSize: 10, flexShrink: 0, marginLeft: 4 }}>▾</span>
                 </button>
@@ -239,7 +248,7 @@ export default function OwnerDashboard() {
                   onClick={() => { setShowNewChat(v => !v); setShowChatList(false); }}
                   style={{ background: '#134e5e', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 13, color: 'white', cursor: 'pointer', fontWeight: 'bold', flexShrink: 0 }}
                 >
-                  + New
+                  {t.newChat}
                 </button>
               </div>
               {showChatList && (
@@ -265,13 +274,13 @@ export default function OwnerDashboard() {
                         <>
                           <button
                             onClick={() => { setActiveChatId(chat.id); setShowChatList(false); }}
-                            style={{ flex: 1, padding: '9px 4px 9px 12px', border: 'none', background: 'transparent', color: activeChatId === chat.id ? '#134e5e' : '#333', fontSize: 13, textAlign: 'left', cursor: 'pointer', fontWeight: activeChatId === chat.id ? '600' : 'normal' }}
+                            style={{ flex: 1, padding: '9px 4px 9px 12px', border: 'none', background: 'transparent', color: activeChatId === chat.id ? '#134e5e' : '#333', fontSize: 13, textAlign: isRTL ? 'right' : 'left', cursor: 'pointer', fontWeight: activeChatId === chat.id ? '600' : 'normal' }}
                           >
                             💬 {chat.name}
                           </button>
                           <button
                             onClick={() => { setRenamingId(chat.id); setRenameValue(chat.name); }}
-                            title="Rename"
+                            title={t.rename}
                             style={{ background: 'none', border: 'none', color: '#bbb', fontSize: 13, padding: '4px 10px 4px 0', cursor: 'pointer', flexShrink: 0 }}
                           >
                             ✏️
@@ -292,7 +301,7 @@ export default function OwnerDashboard() {
                       if (e.key === 'Enter') handleCreateChat();
                       if (e.key === 'Escape') { setShowNewChat(false); setNewChatName(''); }
                     }}
-                    placeholder="Chat name..."
+                    placeholder={t.chatNamePlaceholder}
                     style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 13, outline: 'none' }}
                   />
                   <button onClick={handleCreateChat} style={{ background: '#134e5e', border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 13, color: 'white', fontWeight: 'bold' }}>✓</button>
@@ -321,13 +330,13 @@ export default function OwnerDashboard() {
           {activeTab === 'users' && (
             <div style={mobile.filesWrapper}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <span style={{ fontWeight: 'bold', fontSize: 15, color: '#134e5e' }}>👥 Users</span>
-                <button onClick={fetchUsers} style={ownerUserStyles.refreshBtn}>↻</button>
+                <span style={{ fontWeight: 'bold', fontSize: 15, color: '#134e5e' }}>{t.usersNav}</span>
+                <button onClick={fetchUsers} style={ownerUserStyles.refreshBtn}>{t.refresh}</button>
               </div>
               {loadingUsers ? (
-                <p style={{ color: '#888', fontSize: 14 }}>Loading...</p>
+                <p style={{ color: '#888', fontSize: 14 }}>{t.loading}</p>
               ) : users.length === 0 ? (
-                <p style={{ color: '#aaa', textAlign: 'center', marginTop: 32 }}>No users found</p>
+                <p style={{ color: '#aaa', textAlign: 'center', marginTop: 32 }}>{t.noUsersFound}</p>
               ) : users.map(u => (
                 <div key={u.id} style={ownerUserStyles.mobileCard}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
@@ -341,7 +350,7 @@ export default function OwnerDashboard() {
                       marginLeft: 'auto',
                       background: u.enabled !== false ? '#48bb78' : '#e53e3e',
                     }}>
-                      {u.enabled !== false ? 'Active' : 'Disabled'}
+                      {u.enabled !== false ? t.active : t.disabled}
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
@@ -351,9 +360,9 @@ export default function OwnerDashboard() {
                       disabled={savingPlanId === u.id}
                       style={planSelectStyle(u.plan || 'free', savingPlanId === u.id)}
                     >
-                      <option value="free">Free</option>
-                      <option value="basic">Basic</option>
-                      <option value="pro">Pro</option>
+                      <option value="free">{t.planNames.free}</option>
+                      <option value="basic">{t.planNames.basic}</option>
+                      <option value="pro">{t.planNames.pro}</option>
                     </select>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
@@ -362,7 +371,7 @@ export default function OwnerDashboard() {
                       background: (u.tokens ?? 0) > 20 ? '#c6f6d5' : (u.tokens ?? 0) > 5 ? '#feebc8' : '#fed7d7',
                       color: (u.tokens ?? 0) > 20 ? '#276749' : (u.tokens ?? 0) > 5 ? '#744210' : '#9b2c2c',
                     }}>
-                      🪙 {u.tokens ?? 0} tokens
+                      🪙 {u.tokens ?? 0} {t.tokensUnit}
                     </span>
                     {topupId === u.id ? (
                       <>
@@ -392,7 +401,7 @@ export default function OwnerDashboard() {
                         onClick={() => setTopupId(u.id)}
                         style={{ ...ownerUserStyles.actionBtn, background: '#667eea', padding: '4px 10px', fontSize: 12 }}
                       >
-                        + Add
+                        {t.add}
                       </button>
                     )}
                   </div>
@@ -407,7 +416,7 @@ export default function OwnerDashboard() {
                         opacity: togglingId === u.id ? 0.6 : 1,
                       }}
                     >
-                      {togglingId === u.id ? '...' : u.enabled !== false ? 'Disable' : 'Enable'}
+                      {togglingId === u.id ? '...' : u.enabled !== false ? t.disable : t.enable}
                     </button>
                     <button
                       onClick={() => handleDeleteUser(u.id)}
@@ -419,7 +428,7 @@ export default function OwnerDashboard() {
                         opacity: deletingId === u.id ? 0.6 : 1,
                       }}
                     >
-                      {deletingId === u.id ? '...' : 'Delete'}
+                      {deletingId === u.id ? '...' : t.delete}
                     </button>
                   </div>
                 </div>
@@ -429,19 +438,19 @@ export default function OwnerDashboard() {
           {activeTab === 'reports' && (
             <div style={mobile.filesWrapper}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <span style={{ fontWeight: 'bold', fontSize: 15, color: '#134e5e' }}>📊 User Activity</span>
-                <button onClick={fetchReport} style={ownerUserStyles.refreshBtn}>↻</button>
+                <span style={{ fontWeight: 'bold', fontSize: 15, color: '#134e5e' }}>{t.userActivity}</span>
+                <button onClick={fetchReport} style={ownerUserStyles.refreshBtn}>{t.refresh}</button>
               </div>
               {loadingReport ? (
-                <p style={{ color: '#888', fontSize: 14 }}>Loading...</p>
+                <p style={{ color: '#888', fontSize: 14 }}>{t.loadingReport}</p>
               ) : report ? (
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
                     {[
-                      { label: 'Total Users', value: report.summary.total_users, icon: '👥', color: '#134e5e' },
-                      { label: 'Active Users', value: report.summary.active_users, icon: '✅', color: '#48bb78' },
-                      { label: 'Messages', value: report.summary.total_messages, icon: '💬', color: '#ed8936' },
-                      { label: 'Total Chats', value: report.summary.total_chats, icon: '📂', color: '#71b280' },
+                      { label: t.totalUsers,   value: report.summary.total_users,    icon: '👥', color: '#134e5e' },
+                      { label: t.activeUsers,  value: report.summary.active_users,   icon: '✅', color: '#48bb78' },
+                      { label: t.messages,     value: report.summary.total_messages, icon: '💬', color: '#ed8936' },
+                      { label: t.totalChats,   value: report.summary.total_chats,    icon: '📂', color: '#71b280' },
                     ].map(card => (
                       <div key={card.label} style={{ background: 'white', borderRadius: 10, padding: '14px 12px', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <div style={{ fontSize: 18 }}>{card.icon}</div>
@@ -451,7 +460,7 @@ export default function OwnerDashboard() {
                     ))}
                   </div>
                   {report.users.length === 0 ? (
-                    <p style={{ color: '#aaa', textAlign: 'center', marginTop: 32 }}>No users found</p>
+                    <p style={{ color: '#aaa', textAlign: 'center', marginTop: 32 }}>{t.noUsersFound}</p>
                   ) : report.users.map(u => (
                     <div key={u.id} style={{ ...ownerUserStyles.mobileCard, marginBottom: 10 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
@@ -461,25 +470,25 @@ export default function OwnerDashboard() {
                           <div style={{ fontSize: 11, color: '#888' }}>{u.email}</div>
                         </div>
                         <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: '600', background: u.enabled ? '#c6f6d5' : '#fed7d7', color: u.enabled ? '#276749' : '#9b2c2c' }}>
-                          {u.enabled ? 'Active' : 'Disabled'}
+                          {u.enabled ? t.active : t.disabled}
                         </span>
                       </div>
                       <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#666', flexWrap: 'wrap' }}>
-                        <span>Plan: <b style={{ color: PLAN_COLORS[u.plan]?.color ?? '#4a5568' }}>{u.plan?.charAt(0)?.toUpperCase() + u.plan?.slice(1)}</b></span>
+                        <span>{t.planLabel}: <b style={{ color: PLAN_COLORS[u.plan]?.color ?? '#4a5568' }}>{t.planNames[u.plan] ?? u.plan}</b></span>
                         <span>🪙 {u.tokens}</span>
-                        <span>💬 {u.message_count} msgs</span>
-                        <span>📂 {u.chat_count} chats</span>
+                        <span>💬 {u.message_count} {t.messages}</span>
+                        <span>📂 {u.chat_count} {t.chats}</span>
                       </div>
                       {u.last_active && (
                         <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>
-                          Last active: {new Date(u.last_active).toLocaleDateString()}
+                          {t.lastActive}: {new Date(u.last_active).toLocaleDateString()}
                         </div>
                       )}
                     </div>
                   ))}
                 </>
               ) : (
-                <p style={{ color: '#aaa', textAlign: 'center', marginTop: 32 }}>No data available</p>
+                <p style={{ color: '#aaa', textAlign: 'center', marginTop: 32 }}>{t.noDataShort}</p>
               )}
             </div>
           )}
@@ -492,28 +501,28 @@ export default function OwnerDashboard() {
             style={{ ...mobile.tab, ...(activeTab === 'chat' ? mobile.tabActive : {}) }}
           >
             <span style={mobile.tabIcon}>💬</span>
-            <span style={mobile.tabLabel}>Chat</span>
+            <span style={mobile.tabLabel}>{t.chat}</span>
           </button>
           <button
             onClick={() => setActiveTab('files')}
             style={{ ...mobile.tab, ...(activeTab === 'files' ? mobile.tabActive : {}) }}
           >
             <span style={mobile.tabIcon}>📁</span>
-            <span style={mobile.tabLabel}>Files</span>
+            <span style={mobile.tabLabel}>{t.files}</span>
           </button>
           <button
             onClick={() => setActiveTab('users')}
             style={{ ...mobile.tab, ...(activeTab === 'users' ? mobile.tabActive : {}) }}
           >
             <span style={mobile.tabIcon}>👥</span>
-            <span style={mobile.tabLabel}>Users</span>
+            <span style={mobile.tabLabel}>{t.users}</span>
           </button>
           <button
             onClick={() => setActiveTab('reports')}
             style={{ ...mobile.tab, ...(activeTab === 'reports' ? mobile.tabActive : {}) }}
           >
             <span style={mobile.tabIcon}>📊</span>
-            <span style={mobile.tabLabel}>Reports</span>
+            <span style={mobile.tabLabel}>{t.reports}</span>
           </button>
         </div>
       </div>
@@ -522,7 +531,7 @@ export default function OwnerDashboard() {
 
   // Desktop layout
   return (
-    <div style={styles.container}>
+    <div style={styles.container} dir={isRTL ? 'rtl' : 'ltr'}>
       {/* Sidebar */}
       <div style={styles.sidebar}>
         <div>
@@ -531,7 +540,7 @@ export default function OwnerDashboard() {
               <img src={chatIcon} alt="bot" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', verticalAlign: 'middle', marginRight: 8 }} />
               RAG Bot
             </h2>
-            <span style={styles.pageLabel}>Owner Page</span>
+            <span style={styles.pageLabel}>{t.ownerPage}</span>
           </div>
           {user && (
             <div style={styles.userInfo}>
@@ -554,14 +563,14 @@ export default function OwnerDashboard() {
                   style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 5 }}
                 >
                   <span style={{ fontSize: 10 }}>{showConversations ? '▾' : '▸'}</span>
-                  Conversations
+                  {t.conversations}
                 </button>
                 {showConversations && (
                   <button
                     onClick={() => { setShowNewChat(v => !v); setNewChatName(''); }}
                     style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 6, color: 'white', fontSize: 12, padding: '3px 8px', cursor: 'pointer', fontWeight: 'bold' }}
                   >
-                    + New
+                    {t.newChat}
                   </button>
                 )}
               </div>
@@ -577,7 +586,7 @@ export default function OwnerDashboard() {
                         if (e.key === 'Enter') handleCreateChat();
                         if (e.key === 'Escape') { setShowNewChat(false); setNewChatName(''); }
                       }}
-                      placeholder="Chat name..."
+                      placeholder={t.chatNamePlaceholder}
                       style={{ flex: 1, padding: '6px 8px', borderRadius: 6, border: 'none', fontSize: 13, outline: 'none', color: '#333' }}
                     />
                     <button onClick={handleCreateChat} style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', color: '#134e5e', fontWeight: 'bold', fontSize: 13 }}>✓</button>
@@ -608,13 +617,13 @@ export default function OwnerDashboard() {
                       <>
                         <button
                           onClick={() => { setActiveChatId(chat.id); setActiveTab('chat'); }}
-                          style={{ ...styles.navBtn, flex: 1, background: 'transparent', fontSize: 13, padding: '9px 4px 9px 12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: activeChatId === chat.id ? 'bold' : 'normal' }}
+                          style={{ ...styles.navBtn, flex: 1, background: 'transparent', fontSize: 13, padding: '9px 4px 9px 12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: activeChatId === chat.id ? 'bold' : 'normal', textAlign: isRTL ? 'right' : 'left' }}
                         >
                           💬 {chat.name}
                         </button>
                         <button
                           onClick={() => { setRenamingId(chat.id); setRenameValue(chat.name); }}
-                          title="Rename"
+                          title={t.rename}
                           style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: 13, padding: '4px 10px 4px 4px', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}
                         >
                           ✏️
@@ -630,44 +639,38 @@ export default function OwnerDashboard() {
 
             <button
               onClick={() => setActiveTab('files')}
-              style={{
-                ...styles.navBtn,
-                background: activeTab === 'files' ? 'rgba(255,255,255,0.2)' : 'transparent'
-              }}
+              style={{ ...styles.navBtn, background: activeTab === 'files' ? 'rgba(255,255,255,0.2)' : 'transparent', textAlign: isRTL ? 'right' : 'left' }}
             >
-              📁 My Files
+              {t.myFiles}
             </button>
             <button
               onClick={() => setActiveTab('users')}
-              style={{
-                ...styles.navBtn,
-                background: activeTab === 'users' ? 'rgba(255,255,255,0.2)' : 'transparent'
-              }}
+              style={{ ...styles.navBtn, background: activeTab === 'users' ? 'rgba(255,255,255,0.2)' : 'transparent', textAlign: isRTL ? 'right' : 'left' }}
             >
-              👥 Users
+              {t.usersNav}
             </button>
             <button
               onClick={() => setActiveTab('reports')}
-              style={{
-                ...styles.navBtn,
-                background: activeTab === 'reports' ? 'rgba(255,255,255,0.2)' : 'transparent'
-              }}
+              style={{ ...styles.navBtn, background: activeTab === 'reports' ? 'rgba(255,255,255,0.2)' : 'transparent', textAlign: isRTL ? 'right' : 'left' }}
             >
-              📊 Reports
+              {t.reportsNav}
             </button>
           </nav>
         </div>
 
-        <button onClick={handleLogout} style={styles.logoutBtn}>
-          🚪 Logout
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {langToggleBtn(sidebarLangBtn)}
+          <button onClick={handleLogout} style={{ ...styles.logoutBtn, textAlign: isRTL ? 'right' : 'left' }}>
+            🚪 {t.logout}
+          </button>
+        </div>
       </div>
 
       {/* Main Content */}
       <div style={styles.main}>
         {activeTab === 'chat' && (
           <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>💬 {chats.find(c => c.id === activeChatId)?.name ?? 'Chat'}</h2>
+            <h2 style={styles.sectionTitle}>💬 {chats.find(c => c.id === activeChatId)?.name ?? t.chat}</h2>
             <div style={styles.chatContainer}>
               {user && activeChatId && (
                 <ChatBox
@@ -685,7 +688,7 @@ export default function OwnerDashboard() {
 
         {activeTab === 'files' && (
           <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>📁 My Files</h2>
+            <h2 style={styles.sectionTitle}>{t.myFiles}</h2>
             <FileManager onUploadingChange={setIsUploading} apiOverrides={OWNER_FILE_API} />
           </div>
         )}
@@ -693,29 +696,29 @@ export default function OwnerDashboard() {
         {activeTab === 'users' && (
           <div style={styles.section}>
             <div style={ownerUserStyles.sectionHeader}>
-              <h2 style={styles.sectionTitle}>👥 User Management</h2>
-              <button onClick={fetchUsers} style={ownerUserStyles.refreshBtn}>↻ Refresh</button>
+              <h2 style={styles.sectionTitle}>{t.userManagement}</h2>
+              <button onClick={fetchUsers} style={ownerUserStyles.refreshBtn}>{t.refresh}</button>
             </div>
             {loadingUsers ? (
-              <p style={{ color: '#888' }}>Loading users...</p>
+              <p style={{ color: '#888' }}>{t.loadingUsers}</p>
             ) : (
               <div style={ownerUserStyles.tableWrap}>
                 <table style={ownerUserStyles.table}>
                   <thead>
                     <tr>
-                      <th style={ownerUserStyles.th}>Name</th>
-                      <th style={ownerUserStyles.th}>Email</th>
-                      <th style={ownerUserStyles.th}>Status</th>
-                      <th style={ownerUserStyles.th}>Plan</th>
-                      <th style={ownerUserStyles.th}>Tokens</th>
-                      <th style={ownerUserStyles.th}>Actions</th>
+                      <th style={ownerUserStyles.th}>{t.name}</th>
+                      <th style={ownerUserStyles.th}>{t.email}</th>
+                      <th style={ownerUserStyles.th}>{t.status}</th>
+                      <th style={ownerUserStyles.th}>{t.planLabel}</th>
+                      <th style={ownerUserStyles.th}>{t.tokens}</th>
+                      <th style={ownerUserStyles.th}>{t.actions}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {users.length === 0 ? (
                       <tr>
                         <td colSpan={6} style={{ ...ownerUserStyles.td, textAlign: 'center', color: '#aaa', padding: '32px' }}>
-                          No users found
+                          {t.noUsersFound}
                         </td>
                       </tr>
                     ) : users.map(u => (
@@ -732,7 +735,7 @@ export default function OwnerDashboard() {
                             ...ownerUserStyles.badge,
                             background: u.enabled !== false ? '#48bb78' : '#e53e3e',
                           }}>
-                            {u.enabled !== false ? 'Active' : 'Disabled'}
+                            {u.enabled !== false ? t.active : t.disabled}
                           </span>
                         </td>
                         <td style={ownerUserStyles.td}>
@@ -742,9 +745,9 @@ export default function OwnerDashboard() {
                             disabled={savingPlanId === u.id}
                             style={planSelectStyle(u.plan || 'free', savingPlanId === u.id)}
                           >
-                            <option value="free">Free</option>
-                            <option value="basic">Basic</option>
-                            <option value="pro">Pro</option>
+                            <option value="free">{t.planNames.free}</option>
+                            <option value="basic">{t.planNames.basic}</option>
+                            <option value="pro">{t.planNames.pro}</option>
                           </select>
                         </td>
                         <td style={ownerUserStyles.td}>
@@ -784,7 +787,7 @@ export default function OwnerDashboard() {
                                 onClick={() => setTopupId(u.id)}
                                 style={{ ...ownerUserStyles.actionBtn, background: '#667eea', padding: '4px 10px', fontSize: 12 }}
                               >
-                                + Add
+                                {t.add}
                               </button>
                             )}
                           </div>
@@ -800,7 +803,7 @@ export default function OwnerDashboard() {
                                 opacity: togglingId === u.id ? 0.6 : 1,
                               }}
                             >
-                              {togglingId === u.id ? '...' : u.enabled !== false ? 'Disable' : 'Enable'}
+                              {togglingId === u.id ? '...' : u.enabled !== false ? t.disable : t.enable}
                             </button>
                             <button
                               onClick={() => handleDeleteUser(u.id)}
@@ -811,7 +814,7 @@ export default function OwnerDashboard() {
                                 opacity: deletingId === u.id ? 0.6 : 1,
                               }}
                             >
-                              {deletingId === u.id ? '...' : 'Delete'}
+                              {deletingId === u.id ? '...' : t.delete}
                             </button>
                           </div>
                         </td>
@@ -827,19 +830,19 @@ export default function OwnerDashboard() {
         {activeTab === 'reports' && (
           <div style={styles.section}>
             <div style={ownerUserStyles.sectionHeader}>
-              <h2 style={styles.sectionTitle}>📊 User Activity Report</h2>
-              <button onClick={fetchReport} style={ownerUserStyles.refreshBtn}>↻ Refresh</button>
+              <h2 style={styles.sectionTitle}>{t.activityReport}</h2>
+              <button onClick={fetchReport} style={ownerUserStyles.refreshBtn}>{t.refresh}</button>
             </div>
             {loadingReport ? (
-              <p style={{ color: '#888' }}>Loading report...</p>
+              <p style={{ color: '#888' }}>{t.loadingReport}</p>
             ) : report ? (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16, marginBottom: 28 }}>
                   {[
-                    { label: 'Total Users', value: report.summary.total_users, icon: '👥', color: '#134e5e' },
-                    { label: 'Active Users', value: report.summary.active_users, icon: '✅', color: '#48bb78' },
-                    { label: 'Messages Sent', value: report.summary.total_messages, icon: '💬', color: '#ed8936' },
-                    { label: 'Total Chats', value: report.summary.total_chats, icon: '📂', color: '#71b280' },
+                    { label: t.totalUsers,  value: report.summary.total_users,    icon: '👥', color: '#134e5e' },
+                    { label: t.activeUsers, value: report.summary.active_users,   icon: '✅', color: '#48bb78' },
+                    { label: t.messagesSent, value: report.summary.total_messages, icon: '💬', color: '#ed8936' },
+                    { label: t.totalChats,  value: report.summary.total_chats,    icon: '📂', color: '#71b280' },
                   ].map(card => (
                     <div key={card.label} style={{ background: 'white', borderRadius: 12, padding: '20px 18px', boxShadow: '0 2px 10px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <div style={{ fontSize: 24 }}>{card.icon}</div>
@@ -852,8 +855,8 @@ export default function OwnerDashboard() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
                     <thead>
                       <tr style={{ background: '#fafafa' }}>
-                        {['User', 'Status', 'Plan', 'Tokens', 'Chats', 'Messages', 'Last Active', 'Joined'].map(col => (
-                          <th key={col} style={{ padding: '12px 14px', textAlign: 'left', fontSize: 11, fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #eee' }}>
+                        {[t.user, t.status, t.planLabel, t.tokens, t.chats, t.messages, t.lastActive, t.joined].map(col => (
+                          <th key={col} style={{ padding: '12px 14px', textAlign: isRTL ? 'right' : 'left', fontSize: 11, fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #eee' }}>
                             {col}
                           </th>
                         ))}
@@ -862,7 +865,7 @@ export default function OwnerDashboard() {
                     <tbody>
                       {report.users.length === 0 ? (
                         <tr>
-                          <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 14 }}>No users found</td>
+                          <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 14 }}>{t.noUsersFound}</td>
                         </tr>
                       ) : report.users.map(u => (
                         <tr key={u.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
@@ -879,12 +882,12 @@ export default function OwnerDashboard() {
                           </td>
                           <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
                             <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: '600', background: u.enabled ? '#c6f6d5' : '#fed7d7', color: u.enabled ? '#276749' : '#9b2c2c' }}>
-                              {u.enabled ? 'Active' : 'Disabled'}
+                              {u.enabled ? t.active : t.disabled}
                             </span>
                           </td>
                           <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
                             <span style={{ fontSize: 13, fontWeight: '600', color: PLAN_COLORS[u.plan]?.color ?? '#4a5568' }}>
-                              {u.plan?.charAt(0)?.toUpperCase() + u.plan?.slice(1)}
+                              {t.planNames[u.plan] ?? u.plan}
                             </span>
                           </td>
                           <td style={{ padding: '12px 14px', verticalAlign: 'middle', fontSize: 13, color: '#555' }}>🪙 {u.tokens}</td>
@@ -903,7 +906,7 @@ export default function OwnerDashboard() {
                 </div>
               </>
             ) : (
-              <p style={{ color: '#aaa' }}>No data available. Click Refresh to load.</p>
+              <p style={{ color: '#aaa' }}>{t.noData}</p>
             )}
           </div>
         )}
@@ -929,6 +932,29 @@ const planSelectStyle = (plan, disabled) => ({
   cursor: disabled ? 'not-allowed' : 'pointer',
   opacity: disabled ? 0.6 : 1,
 });
+
+const mobileLangBtn = {
+  background: 'rgba(255,255,255,0.15)',
+  border: '1px solid rgba(255,255,255,0.3)',
+  borderRadius: 6,
+  color: 'white',
+  padding: '3px 8px',
+  fontSize: 11,
+  cursor: 'pointer',
+  fontWeight: '600',
+};
+
+const sidebarLangBtn = {
+  padding: '10px 16px',
+  borderRadius: 10,
+  border: '1px solid rgba(255,255,255,0.3)',
+  background: 'transparent',
+  color: 'white',
+  fontSize: 14,
+  cursor: 'pointer',
+  fontWeight: '600',
+  textAlign: 'center',
+};
 
 const mobile = {
   container: {

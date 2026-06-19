@@ -17,7 +17,6 @@ export default function OwnerLogin() {
     try {
       const res = await ownerLogin(email, password);
       localStorage.setItem('ownerToken', res.data.access_token);
-      // Also set 'token' so shared components (ChatBox, FileManager) work without changes
       localStorage.setItem('token', res.data.access_token);
       navigate('/owner');
     } catch (err) {

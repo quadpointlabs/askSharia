@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getMe, listChats, createChat as apiCreateChat, renameChat as apiRenameChat } from '../services/api';
 import chatIcon from '../assets/chatting.jpg';
 import ChatBox from '../components/ChatBox';
+import useLang from '../useLang';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640);
@@ -27,6 +28,7 @@ export default function Dashboard() {
   const [showConversations, setShowConversations] = useState(true);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const { lang, setLang, t, isRTL } = useLang();
 
   useEffect(() => {
     fetchUser();
@@ -92,25 +94,32 @@ export default function Dashboard() {
     }
   };
 
+  const langToggleBtn = (style) => (
+    <button onClick={() => setLang(lang === 'en' ? 'ar' : 'en')} style={style}>
+      {lang === 'en' ? 'العربية' : 'English'}
+    </button>
+  );
+
   if (isMobile) {
     return (
-      <div style={mobile.container}>
+      <div style={mobile.container} dir={isRTL ? 'rtl' : 'ltr'}>
         {/* Top Header */}
         <div style={mobile.header}>
           <div style={mobile.headerLeft}>
             <img src={chatIcon} alt="bot" style={mobile.headerIcon} />
             <div>
               <span style={mobile.headerTitle}>RAG Bot</span>
-              <span style={mobile.pageLabel}>User Page</span>
+              <span style={mobile.pageLabel}>{t.userPage}</span>
             </div>
           </div>
           {user && (
             <div style={mobile.headerRight}>
+              {langToggleBtn(mobileLangBtn)}
               <span style={planBadgeStyle(user.plan ?? 'free')}>
-                {(user.plan ?? 'free').charAt(0).toUpperCase() + (user.plan ?? 'free').slice(1)}
+                {t.planNames[user.plan ?? 'free']}
               </span>
               <div style={mobile.userAvatar}>{user.name.charAt(0).toUpperCase()}</div>
-              <button onClick={handleLogout} style={mobile.logoutBtn} title="Logout">🚪</button>
+              <button onClick={handleLogout} style={mobile.logoutBtn} title={t.logout}>🚪</button>
             </div>
           )}
         </div>
@@ -123,10 +132,10 @@ export default function Dashboard() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexShrink: 0 }}>
                 <button
                   onClick={() => { setShowChatList(v => !v); setShowNewChat(false); }}
-                  style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 13, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#333' }}
+                  style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 13, textAlign: isRTL ? 'right' : 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#333' }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    💬 {chats.find(c => c.id === activeChatId)?.name ?? 'Chat'}
+                    💬 {chats.find(c => c.id === activeChatId)?.name ?? t.chat}
                   </span>
                   <span style={{ fontSize: 10, flexShrink: 0, marginLeft: 4 }}>▾</span>
                 </button>
@@ -134,7 +143,7 @@ export default function Dashboard() {
                   onClick={() => { setShowNewChat(v => !v); setShowChatList(false); }}
                   style={{ background: '#667eea', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 13, color: 'white', cursor: 'pointer', fontWeight: 'bold', flexShrink: 0 }}
                 >
-                  + New
+                  {t.newChat}
                 </button>
               </div>
               {showChatList && (
@@ -160,13 +169,13 @@ export default function Dashboard() {
                         <>
                           <button
                             onClick={() => { setActiveChatId(chat.id); setShowChatList(false); }}
-                            style={{ flex: 1, padding: '9px 4px 9px 12px', border: 'none', background: 'transparent', color: activeChatId === chat.id ? '#667eea' : '#333', fontSize: 13, textAlign: 'left', cursor: 'pointer', fontWeight: activeChatId === chat.id ? '600' : 'normal' }}
+                            style={{ flex: 1, padding: '9px 4px 9px 12px', border: 'none', background: 'transparent', color: activeChatId === chat.id ? '#667eea' : '#333', fontSize: 13, textAlign: isRTL ? 'right' : 'left', cursor: 'pointer', fontWeight: activeChatId === chat.id ? '600' : 'normal' }}
                           >
                             💬 {chat.name}
                           </button>
                           <button
                             onClick={() => { setRenamingId(chat.id); setRenameValue(chat.name); }}
-                            title="Rename"
+                            title={t.rename}
                             style={{ background: 'none', border: 'none', color: '#bbb', fontSize: 13, padding: '4px 10px 4px 0', cursor: 'pointer', flexShrink: 0 }}
                           >
                             ✏️
@@ -187,7 +196,7 @@ export default function Dashboard() {
                       if (e.key === 'Enter') handleCreateChat();
                       if (e.key === 'Escape') { setShowNewChat(false); setNewChatName(''); }
                     }}
-                    placeholder="Chat name..."
+                    placeholder={t.chatNamePlaceholder}
                     style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 13, outline: 'none' }}
                   />
                   <button onClick={handleCreateChat} style={{ background: '#667eea', border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 13, color: 'white', fontWeight: 'bold' }}>✓</button>
@@ -210,12 +219,12 @@ export default function Dashboard() {
           )}
           {activeTab === 'tokens' && (
             <div style={mobile.filesWrapper}>
-              {user && <TokensPanel tokens={user.tokens ?? 0} plan={user.plan ?? 'free'} />}
+              {user && <TokensPanel tokens={user.tokens ?? 0} plan={user.plan ?? 'free'} t={t} />}
             </div>
           )}
           {activeTab === 'pricing' && (
             <div style={mobile.filesWrapper}>
-              <PricingPage currentPlan={user?.plan ?? 'free'} />
+              <PricingPage currentPlan={user?.plan ?? 'free'} t={t} isRTL={isRTL} />
             </div>
           )}
         </div>
@@ -227,21 +236,21 @@ export default function Dashboard() {
             style={{ ...mobile.tab, ...(activeTab === 'chat' ? mobile.tabActive : {}) }}
           >
             <span style={mobile.tabIcon}>💬</span>
-            <span style={mobile.tabLabel}>Chat</span>
+            <span style={mobile.tabLabel}>{t.chat}</span>
           </button>
           <button
             onClick={() => setActiveTab('tokens')}
             style={{ ...mobile.tab, ...(activeTab === 'tokens' ? mobile.tabActive : {}) }}
           >
             <span style={mobile.tabIcon}>🪙</span>
-            <span style={mobile.tabLabel}>Tokens</span>
+            <span style={mobile.tabLabel}>{t.tokens}</span>
           </button>
           <button
             onClick={() => setActiveTab('pricing')}
             style={{ ...mobile.tab, ...(activeTab === 'pricing' ? mobile.tabActive : {}) }}
           >
             <span style={mobile.tabIcon}>💎</span>
-            <span style={mobile.tabLabel}>Plans</span>
+            <span style={mobile.tabLabel}>{t.plans}</span>
           </button>
         </div>
       </div>
@@ -250,7 +259,7 @@ export default function Dashboard() {
 
   // Desktop layout
   return (
-    <div style={styles.container}>
+    <div style={styles.container} dir={isRTL ? 'rtl' : 'ltr'}>
       {/* Sidebar */}
       <div style={styles.sidebar}>
         <div>
@@ -259,7 +268,7 @@ export default function Dashboard() {
               <img src={chatIcon} alt="bot" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', verticalAlign: 'middle', marginRight: 8 }} />
               RAG Bot
             </h2>
-            <span style={styles.pageLabel}>User Page</span>
+            <span style={styles.pageLabel}>{t.userPage}</span>
           </div>
           {user && (
             <div style={styles.userInfo}>
@@ -270,7 +279,7 @@ export default function Dashboard() {
                 <p style={styles.userName}>{user.name}</p>
                 <p style={styles.userEmail}>{user.email}</p>
                 <span style={planBadgeStyle(user.plan ?? 'free')}>
-                  {(user.plan ?? 'free').charAt(0).toUpperCase() + (user.plan ?? 'free').slice(1)} Plan
+                  {t.planNames[user.plan ?? 'free']}{t.planSuffix}
                 </span>
               </div>
             </div>
@@ -285,14 +294,14 @@ export default function Dashboard() {
                   style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 5 }}
                 >
                   <span style={{ fontSize: 10 }}>{showConversations ? '▾' : '▸'}</span>
-                  Conversations
+                  {t.conversations}
                 </button>
                 {showConversations && (
                   <button
                     onClick={() => { setShowNewChat(v => !v); setNewChatName(''); }}
                     style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 6, color: 'white', fontSize: 12, padding: '3px 8px', cursor: 'pointer', fontWeight: 'bold' }}
                   >
-                    + New
+                    {t.newChat}
                   </button>
                 )}
               </div>
@@ -308,7 +317,7 @@ export default function Dashboard() {
                       if (e.key === 'Enter') handleCreateChat();
                       if (e.key === 'Escape') { setShowNewChat(false); setNewChatName(''); }
                     }}
-                    placeholder="Chat name..."
+                    placeholder={t.chatNamePlaceholder}
                     style={{ flex: 1, padding: '6px 8px', borderRadius: 6, border: 'none', fontSize: 13, outline: 'none', color: '#333' }}
                   />
                   <button onClick={handleCreateChat} style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', color: '#667eea', fontWeight: 'bold', fontSize: 13 }}>✓</button>
@@ -339,13 +348,13 @@ export default function Dashboard() {
                       <>
                         <button
                           onClick={() => { setActiveChatId(chat.id); setActiveTab('chat'); }}
-                          style={{ ...styles.navBtn, flex: 1, background: 'transparent', fontSize: 13, padding: '9px 4px 9px 12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: activeChatId === chat.id ? 'bold' : 'normal' }}
+                          style={{ ...styles.navBtn, flex: 1, background: 'transparent', fontSize: 13, padding: '9px 4px 9px 12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: activeChatId === chat.id ? 'bold' : 'normal', textAlign: isRTL ? 'right' : 'left' }}
                         >
                           💬 {chat.name}
                         </button>
                         <button
                           onClick={() => { setRenamingId(chat.id); setRenameValue(chat.name); }}
-                          title="Rename"
+                          title={t.rename}
                           style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: 13, padding: '4px 10px 4px 4px', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}
                         >
                           ✏️
@@ -361,29 +370,32 @@ export default function Dashboard() {
 
             <button
               onClick={() => setActiveTab('tokens')}
-              style={{ ...styles.navBtn, background: activeTab === 'tokens' ? 'rgba(255,255,255,0.2)' : 'transparent' }}
+              style={{ ...styles.navBtn, background: activeTab === 'tokens' ? 'rgba(255,255,255,0.2)' : 'transparent', textAlign: isRTL ? 'right' : 'left' }}
             >
-              🪙 Tokens
+              🪙 {t.tokens}
             </button>
             <button
               onClick={() => setActiveTab('pricing')}
-              style={{ ...styles.navBtn, background: activeTab === 'pricing' ? 'rgba(255,255,255,0.2)' : 'transparent' }}
+              style={{ ...styles.navBtn, background: activeTab === 'pricing' ? 'rgba(255,255,255,0.2)' : 'transparent', textAlign: isRTL ? 'right' : 'left' }}
             >
-              💎 Plans & Pricing
+              💎 {t.plansAndPricing}
             </button>
           </nav>
         </div>
 
-        <button onClick={handleLogout} style={styles.logoutBtn}>
-          🚪 Logout
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {langToggleBtn(sidebarLangBtn)}
+          <button onClick={handleLogout} style={{ ...styles.logoutBtn, textAlign: isRTL ? 'right' : 'left' }}>
+            🚪 {t.logout}
+          </button>
+        </div>
       </div>
 
       {/* Main Content */}
       <div style={styles.main}>
         {activeTab === 'chat' && (
           <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>💬 {chats.find(c => c.id === activeChatId)?.name ?? 'Chat'}</h2>
+            <h2 style={styles.sectionTitle}>💬 {chats.find(c => c.id === activeChatId)?.name ?? t.chat}</h2>
             <div style={styles.chatContainer}>
               {user && activeChatId && (
                 <ChatBox
@@ -400,14 +412,14 @@ export default function Dashboard() {
         )}
         {activeTab === 'tokens' && (
           <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>🪙 My Tokens</h2>
-            {user && <TokensPanel tokens={user.tokens ?? 0} plan={user.plan ?? 'free'} />}
+            <h2 style={styles.sectionTitle}>🪙 {t.myTokens}</h2>
+            {user && <TokensPanel tokens={user.tokens ?? 0} plan={user.plan ?? 'free'} t={t} />}
           </div>
         )}
         {activeTab === 'pricing' && (
           <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>💎 Plans & Pricing</h2>
-            <PricingPage currentPlan={user?.plan ?? 'free'} />
+            <h2 style={styles.sectionTitle}>💎 {t.plansAndPricing}</h2>
+            <PricingPage currentPlan={user?.plan ?? 'free'} t={t} isRTL={isRTL} />
           </div>
         )}
       </div>
@@ -415,7 +427,12 @@ export default function Dashboard() {
   );
 }
 
-function TokensPanel({ tokens, plan = 'free' }) {
+function TokensPanel({ tokens, plan = 'free', t }) {
+  const PLANS = [
+    { key: 'free',  tokens: 100,  unlimited: false },
+    { key: 'basic', tokens: 500,  unlimited: false },
+    { key: 'pro',   tokens: null, unlimited: true  },
+  ];
   const planInfo = PLANS.find(p => p.key === plan) ?? PLANS[0];
   const isUnlimited = planInfo.unlimited;
   const planGrant = planInfo.tokens ?? 0;
@@ -426,7 +443,7 @@ function TokensPanel({ tokens, plan = 'free' }) {
   return (
     <div style={tp.wrap}>
       <div style={tp.balanceCard}>
-        <div style={tp.balanceLabel}>Available Tokens</div>
+        <div style={tp.balanceLabel}>{t.availableTokens}</div>
         <div style={{ ...tp.balanceNum, color: barColor }}>
           {isUnlimited ? '∞' : tokens}
         </div>
@@ -436,14 +453,14 @@ function TokensPanel({ tokens, plan = 'free' }) {
               <div style={{ ...tp.barFill, width: `${pct}%`, background: barColor }} />
             </div>
             <div style={tp.barMeta}>
-              <span>{used} used</span>
-              <span>{tokens} remaining</span>
+              <span>{used} {t.used}</span>
+              <span>{tokens} {t.remaining}</span>
             </div>
           </>
         )}
         {isUnlimited && (
           <div style={{ fontSize: 13, color: '#48bb78', marginTop: 8, fontWeight: '600' }}>
-            Unlimited — no monthly cap
+            {t.unlimitedNoCap}
           </div>
         )}
       </div>
@@ -451,21 +468,21 @@ function TokensPanel({ tokens, plan = 'free' }) {
       <div style={tp.infoGrid}>
         <div style={tp.infoCard}>
           <div style={tp.infoIcon}>🎁</div>
-          <div style={tp.infoTitle}>{planInfo.name} Plan</div>
-          <div style={tp.infoValue}>{isUnlimited ? 'Unlimited' : `${planGrant.toLocaleString()} tokens`}</div>
-          <div style={tp.infoDesc}>Included with your current plan</div>
+          <div style={tp.infoTitle}>{t.planNames[plan]}{t.planSuffix}</div>
+          <div style={tp.infoValue}>{isUnlimited ? t.unlimitedText : `${planGrant.toLocaleString()} ${t.tokensUnit}`}</div>
+          <div style={tp.infoDesc}>{t.includedWithPlan}</div>
         </div>
         <div style={tp.infoCard}>
           <div style={tp.infoIcon}>💬</div>
-          <div style={tp.infoTitle}>Per Message</div>
-          <div style={tp.infoValue}>1 token</div>
-          <div style={tp.infoDesc}>Each chat message costs 1 token</div>
+          <div style={tp.infoTitle}>{t.perMessage}</div>
+          <div style={tp.infoValue}>{t.oneToken}</div>
+          <div style={tp.infoDesc}>{t.perMessageDesc}</div>
         </div>
         <div style={tp.infoCard}>
           <div style={tp.infoIcon}>📦</div>
-          <div style={tp.infoTitle}>Need More?</div>
-          <div style={tp.infoValue}>Update the plan</div>
-          <div style={tp.infoDesc}>Contact your owner to upgrade to a higher plan</div>
+          <div style={tp.infoTitle}>{t.needMore}</div>
+          <div style={tp.infoValue}>{t.updatePlan}</div>
+          <div style={tp.infoDesc}>{t.contactOwner}</div>
         </div>
       </div>
     </div>
@@ -473,66 +490,15 @@ function TokensPanel({ tokens, plan = 'free' }) {
 }
 
 const PLANS = [
-  {
-    key: 'free',
-    name: 'Free',
-    price: 0,
-    tokens: 100,
-    unlimited: false,
-    reset: 'monthly',
-    color: '#667eea',
-    popular: false,
-    features: [
-      '100 tokens per month',
-      'Tokens reset on the 1st of each month',
-      'Access to all documents',
-      'Multilingual support',
-    ],
-  },
-  {
-    key: 'basic',
-    name: 'Basic',
-    price: 20,
-    tokens: 500,
-    unlimited: false,
-    reset: 'monthly',
-    color: '#38b2ac',
-    popular: true,
-    features: [
-      '500 tokens per month',
-      'Tokens reset on the 1st of each month',
-      'Access to all documents',
-      'Multilingual support',
-      'Priority support',
-    ],
-  },
-  {
-    key: 'pro',
-    name: 'Pro',
-    price: 80,
-    tokens: null,
-    unlimited: true,
-    reset: null,
-    color: '#764ba2',
-    popular: false,
-    features: [
-      'Unlimited tokens',
-      'No monthly cap',
-      'Access to all documents',
-      'Multilingual support',
-      'Priority support',
-      'Dedicated assistance',
-    ],
-  },
+  { key: 'free',  price: 0,  tokens: 100,  unlimited: false, reset: 'monthly', color: '#667eea', popular: false },
+  { key: 'basic', price: 20, tokens: 500,  unlimited: false, reset: 'monthly', color: '#38b2ac', popular: true  },
+  { key: 'pro',   price: 80, tokens: null, unlimited: true,  reset: null,      color: '#764ba2', popular: false },
 ];
 
-function PricingPage({ currentPlan = 'free' }) {
+function PricingPage({ currentPlan = 'free', t, isRTL }) {
   return (
     <div style={pp.wrap}>
-      <p style={pp.subtitle}>
-        Choose the plan that fits your needs. Tokens reset at the beginning of every month.
-        Contact your owner to upgrade.
-      </p>
+      <p style={pp.subtitle}>{t.choosePlanSubtitle}</p>
       <div style={pp.grid}>
         {PLANS.map(plan => {
           const isCurrent = plan.key === currentPlan;
@@ -548,37 +514,37 @@ function PricingPage({ currentPlan = 'free' }) {
             >
               {isCurrent && (
                 <div style={{ ...pp.popularBadge, background: plan.color }}>
-                  Your Plan
+                  {t.yourPlan}
                 </div>
               )}
               {!isCurrent && plan.popular && (
                 <div style={{ ...pp.popularBadge, background: plan.color }}>
-                  Most Popular
+                  {t.mostPopular}
                 </div>
               )}
               <div style={{ ...pp.planIcon, background: plan.color + '18', color: plan.color }}>
                 {plan.key === 'free' ? '🌱' : plan.key === 'basic' ? '⚡' : '🚀'}
               </div>
-              <h3 style={{ ...pp.planName, color: plan.color }}>{plan.name}</h3>
+              <h3 style={{ ...pp.planName, color: plan.color }}>{t.planNames[plan.key]}</h3>
               <div style={pp.priceRow}>
                 {plan.price === 0 ? (
-                  <span style={pp.priceAmount}>Free</span>
+                  <span style={pp.priceAmount}>{t.freePriceLabel}</span>
                 ) : (
                   <>
                     <span style={pp.priceCurrency}>$</span>
                     <span style={pp.priceAmount}>{plan.price}</span>
-                    <span style={pp.pricePeriod}>/mo</span>
+                    <span style={pp.pricePeriod}>{t.perMonth}</span>
                   </>
                 )}
               </div>
               <div style={pp.tokenRow}>
                 <span style={{ ...pp.tokenBadge, background: plan.color + '18', color: plan.color }}>
-                  🪙 {plan.unlimited ? 'Unlimited tokens' : `${plan.tokens.toLocaleString()} tokens/month`}
+                  🪙 {plan.unlimited ? t.unlimitedTokens : `${plan.tokens.toLocaleString()} ${t.tokensPerMonth}`}
                 </span>
               </div>
               <ul style={pp.featureList}>
-                {plan.features.map((f, i) => (
-                  <li key={i} style={pp.featureItem}>
+                {(t.planFeatures[plan.key] ?? []).map((f, i) => (
+                  <li key={i} style={{ ...pp.featureItem, textAlign: isRTL ? 'right' : 'left' }}>
                     <span style={{ ...pp.checkIcon, color: plan.color }}>✓</span>
                     {f}
                   </li>
@@ -597,15 +563,17 @@ function PricingPage({ currentPlan = 'free' }) {
                   cursor: isCurrent ? 'default' : 'pointer',
                 }}
               >
-                {isCurrent ? `✓ Your Current Plan` : plan.price === 0 ? 'Downgrade to Free' : `Upgrade to ${plan.name}`}
+                {isCurrent
+                  ? t.yourCurrentPlan
+                  : plan.price === 0
+                    ? t.downgradeToFree
+                    : `${t.upgradeTo} ${t.planNames[plan.key]}`}
               </button>
             </div>
           );
         })}
       </div>
-      <p style={pp.note}>
-        To upgrade your plan, contact your owner. Tokens are deducted per message sent.
-      </p>
+      <p style={pp.note}>{t.planUpgradeNote}</p>
     </div>
   );
 }
@@ -631,6 +599,29 @@ const planBadgeStyle = (plan) => {
     color: c.color,
     border: `1px solid ${c.border}`,
   };
+};
+
+const mobileLangBtn = {
+  background: 'rgba(255,255,255,0.15)',
+  border: '1px solid rgba(255,255,255,0.3)',
+  borderRadius: 6,
+  color: 'white',
+  padding: '3px 8px',
+  fontSize: 11,
+  cursor: 'pointer',
+  fontWeight: '600',
+};
+
+const sidebarLangBtn = {
+  padding: '10px 16px',
+  borderRadius: 10,
+  border: '1px solid rgba(255,255,255,0.3)',
+  background: 'transparent',
+  color: 'white',
+  fontSize: 14,
+  cursor: 'pointer',
+  fontWeight: '600',
+  textAlign: 'center',
 };
 
 const pp = {
