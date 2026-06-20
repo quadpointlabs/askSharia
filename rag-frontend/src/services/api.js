@@ -95,6 +95,12 @@ export const ownerDeleteChat = (chatId) => ownerApi.delete(`/chats/${chatId}`);
 export const ownerRenameChat = (chatId, name) => ownerApi.put(`/chats/${chatId}`, { name });
 export const ownerGetReport = () => ownerApi.get('/owner/reports');
 
+export const ownerGetSystemPrompt = () =>
+  ownerApi.get('/owner/system-prompt');
+
+export const ownerSetSystemPrompt = (systemPrompt) =>
+  ownerApi.put('/owner/system-prompt', { system_prompt: systemPrompt });
+
 // Files
 export const uploadFile = (file) => {
   const formData = new FormData();

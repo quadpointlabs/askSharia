@@ -127,6 +127,14 @@ const translations = {
     joined: 'Joined',
     noData: 'No data available. Click Refresh to load.',
     noDataShort: 'No data available',
+
+    // Owner System Prompt
+    systemPromptNav: '📝 System Prompt',
+    systemPromptTitle: '📝 System Prompt',
+    systemPromptDesc: 'This prompt instructs the AI assistant on how to query and respond using the RAG documents. Changes take effect immediately for all new chat sessions.',
+    savePrompt: 'Save Prompt',
+    saving: 'Saving...',
+    promptSaved: '✓ Saved',
   },
 
   ar: {
@@ -256,6 +264,14 @@ const translations = {
     joined: 'تاريخ الانضمام',
     noData: 'لا توجد بيانات متاحة. اضغط تحديث للتحميل.',
     noDataShort: 'لا توجد بيانات متاحة',
+
+    // Owner System Prompt
+    systemPromptNav: '📝 الموجه',
+    systemPromptTitle: '📝 موجه النظام',
+    systemPromptDesc: 'يوجّه هذا النص مساعد الذكاء الاصطناعي في كيفية الاستعلام والرد باستخدام المستندات. تسري التغييرات فوراً على جميع المحادثات الجديدة.',
+    savePrompt: 'حفظ الموجه',
+    saving: 'جاري الحفظ...',
+    promptSaved: '✓ تم الحفظ',
   },
 };
 

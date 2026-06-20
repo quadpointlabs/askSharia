@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerListChats, ownerCreateChat, ownerGetMessages, ownerRenameChat, ownerGetReport } from '../services/api';
+import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerListChats, ownerCreateChat, ownerGetMessages, ownerRenameChat, ownerGetReport, ownerGetSystemPrompt, ownerSetSystemPrompt } from '../services/api';
 
 const OWNER_FILE_API = {
   listFiles: ownerListFiles,
@@ -45,6 +45,10 @@ export default function OwnerDashboard() {
   const [savingPlanId, setSavingPlanId] = useState(null);
   const [report, setReport] = useState(null);
   const [loadingReport, setLoadingReport] = useState(false);
+  const [promptDraft, setPromptDraft] = useState('');
+  const [promptSaving, setPromptSaving] = useState(false);
+  const [promptSaved, setPromptSaved] = useState(false);
+  const [promptLoaded, setPromptLoaded] = useState(false);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const { lang, setLang, t, isRTL } = useLang('ownerLang');
@@ -75,6 +79,7 @@ export default function OwnerDashboard() {
 
   useEffect(() => {
     if (activeTab === 'reports') fetchReport();
+    if (activeTab === 'prompt' && !promptLoaded) fetchSystemPrompt();
   }, [activeTab]);
 
   const fetchUser = async () => {
@@ -164,6 +169,32 @@ export default function OwnerDashboard() {
       // silently fail
     } finally {
       setLoadingReport(false);
+    }
+  };
+
+  const fetchSystemPrompt = async () => {
+    try {
+      const res = await ownerGetSystemPrompt();
+      setPromptDraft(res.data.system_prompt);
+      setPromptLoaded(true);
+    } catch {
+      // keep draft empty on error
+    }
+  };
+
+  const handleSavePrompt = async () => {
+    if (!promptDraft.trim()) return;
+    setPromptSaving(true);
+    setPromptSaved(false);
+    try {
+      const res = await ownerSetSystemPrompt(promptDraft);
+      setPromptDraft(res.data.system_prompt);
+      setPromptSaved(true);
+      setTimeout(() => setPromptSaved(false), 3000);
+    } catch {
+      // silently fail
+    } finally {
+      setPromptSaving(false);
     }
   };
 
@@ -435,6 +466,30 @@ export default function OwnerDashboard() {
               ))}
             </div>
           )}
+          {activeTab === 'prompt' && (
+            <div style={mobile.filesWrapper}>
+              <span style={{ fontWeight: 'bold', fontSize: 15, color: '#134e5e', display: 'block', marginBottom: 10 }}>{t.systemPromptTitle}</span>
+              <p style={{ fontSize: 13, color: '#666', lineHeight: 1.5, marginBottom: 12 }}>{t.systemPromptDesc}</p>
+              <textarea
+                value={promptDraft}
+                onChange={e => setPromptDraft(e.target.value)}
+                disabled={!promptLoaded || promptSaving}
+                style={{ width: '100%', minHeight: 220, padding: '10px 12px', borderRadius: 8, border: '1.5px solid #dde1e7', fontSize: 13, fontFamily: 'monospace', lineHeight: 1.6, resize: 'vertical', color: '#333', background: '#fafbfc', boxSizing: 'border-box', outline: 'none' }}
+                placeholder={promptLoaded ? '' : t.loading}
+                dir="ltr"
+              />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
+                {promptSaved && <span style={{ fontSize: 13, color: '#48bb78', fontWeight: '600' }}>{t.promptSaved}</span>}
+                <button
+                  onClick={handleSavePrompt}
+                  disabled={!promptLoaded || promptSaving || !promptDraft.trim()}
+                  style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #134e5e, #71b280)', color: 'white', fontSize: 13, fontWeight: '600', cursor: 'pointer', opacity: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 0.6 : 1 }}
+                >
+                  {promptSaving ? t.saving : t.savePrompt}
+                </button>
+              </div>
+            </div>
+          )}
           {activeTab === 'reports' && (
             <div style={mobile.filesWrapper}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -523,6 +578,13 @@ export default function OwnerDashboard() {
           >
             <span style={mobile.tabIcon}>📊</span>
             <span style={mobile.tabLabel}>{t.reports}</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('prompt')}
+            style={{ ...mobile.tab, ...(activeTab === 'prompt' ? mobile.tabActive : {}) }}
+          >
+            <span style={mobile.tabIcon}>📝</span>
+            <span style={mobile.tabLabel}>{t.systemPromptNav}</span>
           </button>
         </div>
       </div>
@@ -654,6 +716,12 @@ export default function OwnerDashboard() {
               style={{ ...styles.navBtn, background: activeTab === 'reports' ? 'rgba(255,255,255,0.2)' : 'transparent', textAlign: isRTL ? 'right' : 'left' }}
             >
               {t.reportsNav}
+            </button>
+            <button
+              onClick={() => setActiveTab('prompt')}
+              style={{ ...styles.navBtn, background: activeTab === 'prompt' ? 'rgba(255,255,255,0.2)' : 'transparent', textAlign: isRTL ? 'right' : 'left' }}
+            >
+              {t.systemPromptNav}
             </button>
           </nav>
         </div>
@@ -824,6 +892,37 @@ export default function OwnerDashboard() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'prompt' && (
+          <div style={styles.section}>
+            <h2 style={styles.sectionTitle}>{t.systemPromptTitle}</h2>
+            <div style={promptStyles.card}>
+              <p style={promptStyles.desc}>{t.systemPromptDesc}</p>
+              <textarea
+                value={promptDraft}
+                onChange={e => setPromptDraft(e.target.value)}
+                disabled={!promptLoaded || promptSaving}
+                style={promptStyles.textarea}
+                placeholder={promptLoaded ? '' : t.loading}
+                dir="ltr"
+              />
+              <div style={promptStyles.actions}>
+                {promptSaved && <span style={promptStyles.savedBadge}>{t.promptSaved}</span>}
+                <button
+                  onClick={handleSavePrompt}
+                  disabled={!promptLoaded || promptSaving || !promptDraft.trim()}
+                  style={{
+                    ...promptStyles.saveBtn,
+                    opacity: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 0.6 : 1,
+                    cursor: (!promptLoaded || promptSaving || !promptDraft.trim()) ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {promptSaving ? t.saving : t.savePrompt}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1173,6 +1272,61 @@ const ownerUserStyles = {
     border: '1px solid #ddd',
     fontSize: 13,
     textAlign: 'center',
+  },
+};
+
+const promptStyles = {
+  card: {
+    background: 'white',
+    borderRadius: 12,
+    boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+    padding: 24,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 16,
+    flex: 1,
+  },
+  desc: {
+    margin: 0,
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 1.6,
+  },
+  textarea: {
+    width: '100%',
+    minHeight: 280,
+    padding: '12px 14px',
+    borderRadius: 8,
+    border: '1.5px solid #dde1e7',
+    fontSize: 14,
+    fontFamily: 'monospace',
+    lineHeight: 1.6,
+    resize: 'vertical',
+    color: '#333',
+    background: '#fafbfc',
+    boxSizing: 'border-box',
+    outline: 'none',
+  },
+  actions: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  savedBadge: {
+    fontSize: 13,
+    color: '#48bb78',
+    fontWeight: '600',
+  },
+  saveBtn: {
+    padding: '10px 24px',
+    borderRadius: 8,
+    border: 'none',
+    background: 'linear-gradient(135deg, #134e5e, #71b280)',
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+    cursor: 'pointer',
   },
 };
 

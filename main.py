@@ -45,6 +45,7 @@ load_dotenv()
 COLLECTION_NAME = "rag_documents"
 UPLOAD_DIR = Path("text_files")
 SYSTEM_PROMPT_FILE = Path("system_prompt.txt")
+SHARED_OWNER_ID = "shared"  # all owners share one file pool
 
 try:
     client = QdrantClient(url=os.getenv("QDRANT_URL", "localhost"), port=6333)
@@ -284,13 +285,11 @@ def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: S
 
     try:
         session_key = req.chat_id if req.chat_id else str(current_user.id)
-        if is_owner:
-            # Owner chats against their own uploaded files
-            engine = get_chat_engine(session_key, [str(current_user.id)])
-        else:
-            # Regular user: query all enabled owners' files (the shared knowledge base)
-            owner_ids = [str(o.id) for o in db.query(Owner).filter(Owner.enabled == True).all()]
-            engine = get_chat_engine(session_key, owner_ids or [str(current_user.id)])
+        # All actors (owners and users) query the shared file pool plus any legacy per-owner files
+        owner_ids = [str(o.id) for o in db.query(Owner).filter(Owner.enabled == True).all()]
+        if SHARED_OWNER_ID not in owner_ids:
+            owner_ids.append(SHARED_OWNER_ID)
+        engine = get_chat_engine(session_key, owner_ids or [SHARED_OWNER_ID])
         response = engine.chat(req.question)
 
         # Step 1: Build file → correct reference number mapping
@@ -458,12 +457,12 @@ async def owner_upload_file(file: UploadFile = File(...), current_owner: Owner =
         )
     dest: Optional[Path] = None
     try:
-        owner_dir = UPLOAD_DIR / current_owner.id
-        owner_dir.mkdir(parents=True, exist_ok=True)
-        dest = owner_dir / safe_name
+        shared_dir = UPLOAD_DIR / SHARED_OWNER_ID
+        shared_dir.mkdir(parents=True, exist_ok=True)
+        dest = shared_dir / safe_name
         with open(dest, "wb") as f:
             shutil.copyfileobj(file.file, f)
-        index_user_files(user_id=current_owner.id, file_dir=str(owner_dir))
+        index_user_files(user_id=SHARED_OWNER_ID, file_dir=str(shared_dir))
         sessions.clear()
         return {"message": f"File '{safe_name}' uploaded and indexed successfully", "file": safe_name}
     except HTTPException:
@@ -477,8 +476,8 @@ async def owner_upload_file(file: UploadFile = File(...), current_owner: Owner =
 
 @app.get("/owner/files")
 def owner_list_files(current_owner: Owner = Depends(get_current_owner)):
-    owner_dir = UPLOAD_DIR / current_owner.id
-    if not owner_dir.exists():
+    shared_dir = UPLOAD_DIR / SHARED_OWNER_ID
+    if not shared_dir.exists():
         return {"files": []}
     files = [
         {
@@ -486,7 +485,7 @@ def owner_list_files(current_owner: Owner = Depends(get_current_owner)):
             "size": f.stat().st_size,
             "uploaded_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
         }
-        for f in owner_dir.iterdir() if f.is_file()
+        for f in shared_dir.iterdir() if f.is_file()
     ]
     return {"files": files}
 
@@ -495,7 +494,7 @@ def owner_list_files(current_owner: Owner = Depends(get_current_owner)):
 def owner_download_file(filename: str, current_owner: Owner = Depends(get_current_owner)):
     if filename != Path(filename).name:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    file_path = UPLOAD_DIR / current_owner.id / filename
+    file_path = UPLOAD_DIR / SHARED_OWNER_ID / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path=file_path, filename=filename, media_type="application/octet-stream")
@@ -505,17 +504,17 @@ def owner_download_file(filename: str, current_owner: Owner = Depends(get_curren
 def owner_delete_file(filename: str, current_owner: Owner = Depends(get_current_owner)):
     if filename != Path(filename).name:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    owner_dir = UPLOAD_DIR / current_owner.id
-    file_path = owner_dir / filename
+    shared_dir = UPLOAD_DIR / SHARED_OWNER_ID
+    file_path = shared_dir / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     file_path.unlink()
     sessions.clear()
     try:
-        delete_user_files(current_owner.id)
-        remaining = [f for f in owner_dir.iterdir() if f.is_file()]
+        delete_user_files(SHARED_OWNER_ID)
+        remaining = [f for f in shared_dir.iterdir() if f.is_file()]
         if remaining:
-            index_user_files(user_id=current_owner.id, file_dir=str(owner_dir))
+            index_user_files(user_id=SHARED_OWNER_ID, file_dir=str(shared_dir))
     except Exception:
         logger.exception("Index update failed after deleting %s for owner %s", filename, current_owner.id)
         raise HTTPException(status_code=500, detail="File deleted but index update failed.")
@@ -757,6 +756,27 @@ def owner_delete_user(
     db.delete(user)
     db.commit()
     return {"message": "User deleted"}
+
+
+# ── Owner → System Prompt ────────────────────────────────────
+@app.get("/owner/system-prompt")
+def owner_get_system_prompt(current_owner: Owner = Depends(get_current_owner)):
+    return {"system_prompt": _system_prompt}
+
+
+@app.put("/owner/system-prompt")
+def owner_set_system_prompt(
+    req: SystemPromptRequest,
+    current_owner: Owner = Depends(get_current_owner),
+):
+    global _system_prompt
+    prompt = req.system_prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="System prompt cannot be empty")
+    _system_prompt = prompt
+    SYSTEM_PROMPT_FILE.write_text(prompt, encoding="utf-8")
+    sessions.clear()
+    return {"system_prompt": _system_prompt}
 
 
 # ── Admin → System Prompt ─────────────────────────────────────
