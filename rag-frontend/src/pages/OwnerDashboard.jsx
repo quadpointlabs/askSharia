@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerListChats, ownerCreateChat, ownerGetMessages, ownerRenameChat, ownerGetReport, ownerGetSystemPrompt, ownerSetSystemPrompt } from '../services/api';
+import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerListChats, ownerCreateChat, ownerGetMessages, ownerRenameChat, ownerGetReport, ownerGetSystemPrompt, ownerSetSystemPrompt, ownerListUserFiles } from '../services/api';
 
 const OWNER_FILE_API = {
   listFiles: ownerListFiles,
@@ -49,6 +49,7 @@ export default function OwnerDashboard() {
   const [promptSaving, setPromptSaving] = useState(false);
   const [promptSaved, setPromptSaved] = useState(false);
   const [promptLoaded, setPromptLoaded] = useState(false);
+  const [userFilesModal, setUserFilesModal] = useState(null);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const { lang, setLang, t, isRTL } = useLang('ownerLang');
@@ -182,6 +183,16 @@ export default function OwnerDashboard() {
     }
   };
 
+  const handleViewUserFiles = async (u) => {
+    setUserFilesModal({ user: u, files: null, loading: true });
+    try {
+      const res = await ownerListUserFiles(u.id);
+      setUserFilesModal({ user: u, files: res.data.files, loading: false });
+    } catch {
+      setUserFilesModal({ user: u, files: [], loading: false });
+    }
+  };
+
   const handleSavePrompt = async () => {
     if (!promptDraft.trim()) return;
     setPromptSaving(true);
@@ -239,9 +250,49 @@ export default function OwnerDashboard() {
     </button>
   );
 
+  const userFilesModalEl = userFilesModal && (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+      <div style={{ background: 'white', borderRadius: 14, padding: '24px 28px', width: '90%', maxWidth: 500, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontWeight: 'bold', fontSize: 16, color: '#134e5e' }}>{userFilesModal.user.name}</div>
+            <div style={{ fontSize: 12, color: '#aaa' }}>{userFilesModal.user.email}</div>
+          </div>
+          <button onClick={() => setUserFilesModal(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#aaa', lineHeight: 1 }}>✕</button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {userFilesModal.loading ? (
+            <p style={{ color: '#888', textAlign: 'center', padding: 24 }}>{t.loading}</p>
+          ) : userFilesModal.files?.length === 0 ? (
+            <p style={{ color: '#aaa', textAlign: 'center', padding: 24 }}>No files uploaded.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {userFilesModal.files.map(file => (
+                <div key={file.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid #eee', background: '#fafafa' }}>
+                  <span style={{ fontSize: 22 }}>
+                    {file.name.endsWith('.pdf') ? '📄' : file.name.endsWith('.docx') ? '📝' : file.name.endsWith('.txt') ? '📃' : file.name.endsWith('.pptx') ? '📊' : '📁'}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontSize: 13, fontWeight: 'bold', color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</p>
+                    <p style={{ margin: 0, fontSize: 11, color: '#aaa' }}>
+                      {file.size < 1024 ? file.size + ' B' : file.size < 1048576 ? (file.size / 1024).toFixed(1) + ' KB' : (file.size / 1048576).toFixed(1) + ' MB'}
+                      {' · '}
+                      {new Date(file.uploaded_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   if (isMobile) {
     return (
       <div style={mobile.container} dir={isRTL ? 'rtl' : 'ltr'}>
+        {userFilesModalEl}
         {/* Top Header */}
         <div style={mobile.header}>
           <div style={mobile.headerLeft}>
@@ -450,6 +501,12 @@ export default function OwnerDashboard() {
                       {togglingId === u.id ? '...' : u.enabled !== false ? t.disable : t.enable}
                     </button>
                     <button
+                      onClick={() => handleViewUserFiles(u)}
+                      style={{ ...ownerUserStyles.actionBtn, flex: 1, background: '#4a90d9' }}
+                    >
+                      📁 Files
+                    </button>
+                    <button
                       onClick={() => handleDeleteUser(u.id)}
                       disabled={deletingId === u.id}
                       style={{
@@ -594,6 +651,7 @@ export default function OwnerDashboard() {
   // Desktop layout
   return (
     <div style={styles.container} dir={isRTL ? 'rtl' : 'ltr'}>
+      {userFilesModalEl}
       {/* Sidebar */}
       <div style={styles.sidebar}>
         <div>
@@ -872,6 +930,12 @@ export default function OwnerDashboard() {
                               }}
                             >
                               {togglingId === u.id ? '...' : u.enabled !== false ? t.disable : t.enable}
+                            </button>
+                            <button
+                              onClick={() => handleViewUserFiles(u)}
+                              style={{ ...ownerUserStyles.actionBtn, background: '#4a90d9' }}
+                            >
+                              📁 Files
                             </button>
                             <button
                               onClick={() => handleDeleteUser(u.id)}

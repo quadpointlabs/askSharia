@@ -51,6 +51,9 @@ export const ownerSetUserStatus = (userId, enabled) =>
 export const ownerDeleteUser = (userId) =>
   ownerApi.delete(`/owner/users/${userId}`);
 
+export const ownerListUserFiles = (userId) =>
+  ownerApi.get(`/owner/users/${userId}/files`);
+
 export const ownerTopUpTokens = (userId, amount) =>
   ownerApi.put(`/owner/users/${userId}/tokens`, { amount });
 

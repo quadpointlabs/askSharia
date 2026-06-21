@@ -744,6 +744,29 @@ def owner_set_user_plan(
     return {"plan": user.plan}
 
 
+@app.get("/owner/users/{user_id}/files")
+def owner_list_user_files(
+    user_id: str,
+    current_owner: Owner = Depends(get_current_owner),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user_dir = UPLOAD_DIR / user_id
+    if not user_dir.exists():
+        return {"files": []}
+    files = [
+        {
+            "name": f.name,
+            "size": f.stat().st_size,
+            "uploaded_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+        }
+        for f in user_dir.iterdir() if f.is_file()
+    ]
+    return {"files": files}
+
+
 @app.delete("/owner/users/{user_id}")
 def owner_delete_user(
     user_id: str,
