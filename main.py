@@ -2,13 +2,17 @@
 RAG Chatbot API — FastAPI entry point.
 '''
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 from typing import List, Optional
 import json
 import logging
 import os
+import secrets
 import shutil
+import smtplib
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
@@ -40,6 +44,37 @@ from qdrant_client.models import Filter, FieldCondition, MatchValue
 from qdrant_client import QdrantClient, AsyncQdrantClient
 
 load_dotenv()
+
+# ── Email / verification ──────────────────────────────────────
+SMTP_HOST     = os.getenv("SMTP_HOST", "")
+SMTP_PORT     = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER     = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM     = os.getenv("SMTP_FROM", SMTP_USER)
+
+# email -> {code, expires_at}
+_verification_codes: dict = {}
+
+def _send_email(to: str, subject: str, body: str) -> None:
+    if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
+        logger.warning("SMTP not configured — skipping email to %s. Set SMTP_HOST, SMTP_USER, SMTP_PASSWORD.", to)
+        return
+    msg = MIMEMultipart()
+    msg["From"] = SMTP_FROM
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_FROM, to, msg.as_string())
+    except smtplib.SMTPAuthenticationError:
+        logger.error("SMTP authentication failed — check SMTP_USER and SMTP_PASSWORD in .env")
+        raise HTTPException(status_code=503, detail="Email service authentication failed — please contact support")
+    except smtplib.SMTPException as exc:
+        logger.error("SMTP error sending to %s: %s", to, exc)
+        raise HTTPException(status_code=503, detail="Failed to send email — please try again later")
 
 # ── Setup ────────────────────────────────────────────────────
 COLLECTION_NAME = "rag_documents"
@@ -108,6 +143,11 @@ def startup():
             conn.commit()
         except Exception:
             pass
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN mobile VARCHAR"))
+            conn.commit()
+        except Exception:
+            pass
 
     # Load persisted system prompt if present
     global _system_prompt
@@ -140,10 +180,14 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "An unexpected server error occurred"})
 
 # ── Schemas ──────────────────────────────────────────────────
+class SendVerificationRequest(BaseModel):
+    email: EmailStr
+
 class RegisterRequest(BaseModel):
     name: str
     email: EmailStr
     password: str
+    mobile: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -176,16 +220,38 @@ class OwnerCreateRequest(BaseModel):
     password: str
 
 # ── Auth Endpoints ───────────────────────────────────────────
+@app.post("/auth/send-verification")
+def send_verification(req: SendVerificationRequest, db: Session = Depends(get_db)):
+    email = req.email.lower()
+    if db.query(User).filter(User.email == email).first():
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    code = str(secrets.randbelow(1000000)).zfill(6)
+    _verification_codes[email] = {"code": code, "expires_at": datetime.utcnow() + timedelta(minutes=10)}
+    _send_email(
+        to=email,
+        subject="askSharia — Email Verification Code",
+        body=(
+            f"Your verification code is: {code}\n\n"
+            "This code expires in 10 minutes.\n\n"
+            "If you did not request this, please ignore this email."
+        ),
+    )
+    logger.info("Verification code sent to %s", email)
+    return {"message": "Verification code sent"}
+
+
 @app.post("/auth/register", status_code=201)
 def register(req: RegisterRequest, db: Session = Depends(get_db)):
     email = req.email.lower()
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=409, detail="An account with this email already exists")
-    user = User(name=req.name, email=email, hashed_password=hash_password(req.password))
+    if req.mobile and db.query(User).filter(User.mobile == req.mobile).first():
+        raise HTTPException(status_code=409, detail="An account with this mobile number already exists")
+    user = User(name=req.name, email=email, hashed_password=hash_password(req.password), mobile=req.mobile)
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"id": user.id, "name": user.name, "email": user.email}
+    return {"id": user.id, "name": user.name, "email": user.email, "mobile": user.mobile}
 
 
 @app.post("/auth/login")

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ownerLogin } from '../services/api';
-import chatIcon from '../assets/chatting.jpg';
+import chatIcon from '../assets/balance.jpg';
 
 export default function OwnerLogin() {
   const [email, setEmail] = useState('');

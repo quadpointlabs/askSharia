@@ -24,6 +24,7 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)
+    mobile = Column(String, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
     tokens = Column(Integer, default=100, nullable=False)
     plan = Column(String, default="free", nullable=False)

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { login } from '../services/api';
-import chatIcon from '../assets/chatting.jpg';
+import chatIcon from '../assets/balance.jpg';
 
 export default function Home() {
   const [email, setEmail] = useState('');
@@ -29,7 +29,7 @@ export default function Home() {
     <div style={styles.container}>
       <div style={styles.card}>
         <img src={chatIcon} alt="askSharia" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', display: 'block', margin: '0 auto 12px' }} />
-        <h1 style={styles.title}>askSharia</h1>
+        <h1 style={styles.title}>اسأل والشريعه تجيب</h1>
         <p style={styles.subtitle}>Your personal AI assistant</p>
 
         <form onSubmit={handleLogin} style={styles.form}>
