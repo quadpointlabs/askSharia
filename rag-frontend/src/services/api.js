@@ -24,8 +24,8 @@ export const login = (email, password) =>
 export const sendVerificationCode = (email) =>
   api.post('/auth/send-verification', { email });
 
-export const register = (name, email, password, mobile) =>
-  api.post('/auth/register', { name, email, password, mobile });
+export const register = (name, email, password, mobile, verificationCode) =>
+  api.post('/auth/register', { name, email, password, mobile, verification_code: verificationCode });
 
 export const getMe = () =>
   api.get('/auth/me');

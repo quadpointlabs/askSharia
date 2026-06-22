@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { register } from '../services/api';
+import { sendVerificationCode, register } from '../services/api';
 import chatIcon from '../assets/balance.jpg';
 
 const COUNTRY_CODES = [
@@ -276,9 +276,49 @@ export default function Register() {
   const [password, setPassword] = useState('');
   const [countryCode, setCountryCode] = useState('+966');
   const [mobileNumber, setMobileNumber] = useState('');
+
+  const [step, setStep] = useState('form'); // 'form' | 'verify'
+  const [verificationCode, setVerificationCode] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setTimeout(() => setResendCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendCooldown]);
+
+  const handleSendCode = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await sendVerificationCode(email);
+      setStep('verify');
+      setResendCooldown(60);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to send verification code');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (resendCooldown > 0) return;
+    setError('');
+    setLoading(true);
+    try {
+      await sendVerificationCode(email);
+      setResendCooldown(60);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to resend code');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -286,7 +326,7 @@ export default function Register() {
     setLoading(true);
     const mobile = mobileNumber ? `${countryCode}${mobileNumber}` : undefined;
     try {
-      await register(name, email, password, mobile);
+      await register(name, email, password, mobile, verificationCode);
       navigate('/');
     } catch (err) {
       setError(err.response?.data?.detail || 'Registration failed');
@@ -302,46 +342,83 @@ export default function Register() {
         <h1 style={styles.title}>Create Account</h1>
         <p style={styles.subtitle}>Join askSharia</p>
 
-        <form onSubmit={handleRegister} style={styles.form}>
-          <input
-            type="text"
-            placeholder="Full Name"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            style={styles.input}
-            required
-          />
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            style={styles.input}
-            required
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            style={styles.input}
-            required
-          />
-          <div style={styles.phoneRow}>
-            <CountryCodePicker value={countryCode} onChange={setCountryCode} />
+        {step === 'form' ? (
+          <form onSubmit={handleSendCode} style={styles.form}>
             <input
-              type="tel"
-              placeholder="Mobile number"
-              value={mobileNumber}
-              onChange={e => setMobileNumber(e.target.value)}
-              style={styles.phoneInput}
+              type="text"
+              placeholder="Full Name"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              style={styles.input}
+              required
             />
-          </div>
-          {error && <p style={styles.error}>{error}</p>}
-          <button type="submit" style={styles.button} disabled={loading}>
-            {loading ? 'Creating account...' : 'Register'}
-          </button>
-        </form>
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              style={styles.input}
+              required
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              style={styles.input}
+              required
+            />
+            <div style={styles.phoneRow}>
+              <CountryCodePicker value={countryCode} onChange={setCountryCode} />
+              <input
+                type="tel"
+                placeholder="Mobile number"
+                value={mobileNumber}
+                onChange={e => setMobileNumber(e.target.value)}
+                style={styles.phoneInput}
+              />
+            </div>
+            {error && <p style={styles.error}>{error}</p>}
+            <button type="submit" style={styles.button} disabled={loading}>
+              {loading ? 'Sending code...' : 'Send Verification Code'}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleRegister} style={styles.form}>
+            <div style={styles.infoBox}>
+              A 6-digit verification code was sent to <strong>{email}</strong>.
+              Enter it below to complete registration.
+            </div>
+            <input
+              type="text"
+              placeholder="6-digit verification code"
+              value={verificationCode}
+              onChange={e => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              style={{ ...styles.input, textAlign: 'center', fontSize: 22, letterSpacing: 8 }}
+              maxLength={6}
+              required
+              autoFocus
+            />
+            {error && <p style={styles.error}>{error}</p>}
+            <button type="submit" style={styles.button} disabled={loading || verificationCode.length < 6}>
+              {loading ? 'Registering...' : 'Verify & Register'}
+            </button>
+            <div style={styles.resendRow}>
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resendCooldown > 0 || loading}
+                style={styles.resendBtn}
+              >
+                {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend code'}
+              </button>
+              <span style={styles.separator}>·</span>
+              <button type="button" onClick={() => { setStep('form'); setError(''); }} style={styles.resendBtn}>
+                Change email
+              </button>
+            </div>
+          </form>
+        )}
 
         <p style={styles.linkRow}>
           Already have an account?{' '}
@@ -386,6 +463,19 @@ const styles = {
     color: 'white', fontSize: 16, fontWeight: 'bold', cursor: 'pointer', marginTop: 8,
   },
   error: { color: 'red', fontSize: 13, textAlign: 'center' },
+  infoBox: {
+    background: '#f0f4ff', border: '1px solid #c7d2fe', borderRadius: 8,
+    padding: '12px 14px', fontSize: 13, color: '#444', lineHeight: 1.5,
+  },
+  resendRow: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: 8, marginTop: 4,
+  },
+  resendBtn: {
+    background: 'none', border: 'none', color: '#667eea', fontSize: 13,
+    cursor: 'pointer', padding: 0, textDecoration: 'underline',
+  },
+  separator: { color: '#ccc', fontSize: 13 },
   separator: { color: '#ccc', fontSize: 13 },
   linkRow: { textAlign: 'center', marginTop: 16, fontSize: 13, color: '#666' },
   inlineLink: { color: '#667eea', textDecoration: 'none', fontWeight: 'bold' },

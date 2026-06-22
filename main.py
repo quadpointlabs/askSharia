@@ -188,6 +188,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     mobile: Optional[str] = None
+    verification_code: str
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -243,6 +244,15 @@ def send_verification(req: SendVerificationRequest, db: Session = Depends(get_db
 @app.post("/auth/register", status_code=201)
 def register(req: RegisterRequest, db: Session = Depends(get_db)):
     email = req.email.lower()
+    pending = _verification_codes.get(email)
+    if not pending:
+        raise HTTPException(status_code=400, detail="Please request a verification code first")
+    if datetime.utcnow() > pending["expires_at"]:
+        _verification_codes.pop(email, None)
+        raise HTTPException(status_code=400, detail="Verification code has expired — please request a new one")
+    if pending["code"] != req.verification_code:
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+    _verification_codes.pop(email, None)
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=409, detail="An account with this email already exists")
     if req.mobile and db.query(User).filter(User.mobile == req.mobile).first():
