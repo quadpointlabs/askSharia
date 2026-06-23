@@ -376,7 +376,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
-    maxHeight: 300,
+    maxHeight: '70vh',
     overflowY: 'auto',
   },
   fileItem: {
