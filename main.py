@@ -15,7 +15,7 @@ import shutil
 import smtplib
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
@@ -442,8 +442,26 @@ def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: S
 
 
 # ── File Upload ───────────────────────────────────────────────
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
+def _index_file_background(index_id: str, file_dir: str, dest: Path, clear_all_sessions: bool):
+    """Index an uploaded file and refresh chat caches. Runs after the response is sent.
+
+    On failure the offending file is removed so a later upload can retry cleanly.
+    """
+    try:
+        index_user_files(user_id=index_id, file_dir=file_dir)
+        if clear_all_sessions:
+            sessions.clear()
+        else:
+            sessions.pop(index_id, None)
+        logger.info("Background indexing complete for %s, file %s", index_id, dest.name)
+    except Exception:
+        logger.exception("Background indexing failed for %s, file %s", index_id, dest.name)
+        if dest.exists():
+            dest.unlink(missing_ok=True)
+
+
+def _save_upload(file: UploadFile, target_dir: Path) -> Path:
+    """Validate extension and stream the upload to disk. Returns the saved path."""
     safe_name = Path(file.filename).name
     ext = Path(safe_name).suffix.lower()
     if ext not in SUPPORTED_EXTENSIONS:
@@ -451,23 +469,35 @@ async def upload_file(file: UploadFile = File(...), current_user: User = Depends
             status_code=400,
             detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(SUPPORTED_EXTENSIONS)}",
         )
-    dest: Optional[Path] = None
+    target_dir.mkdir(parents=True, exist_ok=True)
+    dest = target_dir / safe_name
     try:
-        user_dir = UPLOAD_DIR / current_user.id
-        user_dir.mkdir(parents=True, exist_ok=True)
-        dest = user_dir / safe_name
         with open(dest, "wb") as f:
             shutil.copyfileobj(file.file, f)
-        index_user_files(user_id=current_user.id, file_dir=str(user_dir))
-        sessions.pop(current_user.id, None)
-        return {"message": f"File '{safe_name}' uploaded and indexed successfully", "file": safe_name}
-    except HTTPException:
-        raise
     except Exception:
-        logger.exception("Upload/index error for user %s, file %s", current_user.id, safe_name)
-        if dest and dest.exists():
+        logger.exception("Failed to save upload %s", safe_name)
+        if dest.exists():
             dest.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail="Failed to process and index the file.")
+        raise HTTPException(status_code=500, detail="Failed to save the file.")
+    return dest
+
+
+@app.post("/upload", status_code=202)
+async def upload_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    user_dir = UPLOAD_DIR / current_user.id
+    dest = _save_upload(file, user_dir)
+    background_tasks.add_task(
+        _index_file_background, current_user.id, str(user_dir), dest, False
+    )
+    return {
+        "message": f"File '{dest.name}' uploaded — indexing in the background",
+        "file": dest.name,
+        "status": "indexing",
+    }
 
 
 # ── List User Files ───────────────────────────────────────────
@@ -522,32 +552,22 @@ def delete_file(filename: str, current_user: User = Depends(get_current_user)):
 
 
 # ── Owner File Management ────────────────────────────────────
-@app.post("/owner/upload")
-async def owner_upload_file(file: UploadFile = File(...), current_owner: Owner = Depends(get_current_owner)):
-    safe_name = Path(file.filename).name
-    ext = Path(safe_name).suffix.lower()
-    if ext not in SUPPORTED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(SUPPORTED_EXTENSIONS)}",
-        )
-    dest: Optional[Path] = None
-    try:
-        shared_dir = UPLOAD_DIR / SHARED_OWNER_ID
-        shared_dir.mkdir(parents=True, exist_ok=True)
-        dest = shared_dir / safe_name
-        with open(dest, "wb") as f:
-            shutil.copyfileobj(file.file, f)
-        index_user_files(user_id=SHARED_OWNER_ID, file_dir=str(shared_dir))
-        sessions.clear()
-        return {"message": f"File '{safe_name}' uploaded and indexed successfully", "file": safe_name}
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Upload/index error for owner %s, file %s", current_owner.id, safe_name)
-        if dest and dest.exists():
-            dest.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail="Failed to process and index the file.")
+@app.post("/owner/upload", status_code=202)
+async def owner_upload_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    current_owner: Owner = Depends(get_current_owner),
+):
+    shared_dir = UPLOAD_DIR / SHARED_OWNER_ID
+    dest = _save_upload(file, shared_dir)
+    background_tasks.add_task(
+        _index_file_background, SHARED_OWNER_ID, str(shared_dir), dest, True
+    )
+    return {
+        "message": f"File '{dest.name}' uploaded — indexing in the background",
+        "file": dest.name,
+        "status": "indexing",
+    }
 
 
 @app.get("/owner/files")

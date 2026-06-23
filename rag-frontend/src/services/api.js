@@ -70,7 +70,8 @@ export const ownerUploadFile = (file) => {
   const formData = new FormData();
   formData.append('file', file);
   return ownerApi.post('/owner/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 0, // no client-side timeout while the file streams to the server
   });
 };
 
@@ -112,7 +113,8 @@ export const uploadFile = (file) => {
   const formData = new FormData();
   formData.append('file', file);
   return api.post('/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 0, // no client-side timeout while the file streams to the server
   });
 };
 
