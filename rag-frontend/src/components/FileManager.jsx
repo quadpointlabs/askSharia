@@ -13,16 +13,26 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
   const [selected, setSelected] = useState([]);
   const [uploadModal, setUploadModal] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [message, setMessage] = useState(null);
   const dragCounter = useRef(0);
   const fileInputRef = useRef(null);
   const autoCloseTimer = useRef(null);
 
   const uploading = uploadModal?.phase === 'uploading';
 
+  const INDEXING_NOTICE = '⚠️ The system may be unavailable for a short while due to updating and indexing.';
+
   useEffect(() => {
     fetchFiles();
     return () => { if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current); };
   }, []);
+
+  // While any file is still indexing, poll until all are indexed.
+  useEffect(() => {
+    if (!files.some(f => !f.indexed)) return;
+    const timer = setInterval(fetchFiles, 5000);
+    return () => clearInterval(timer);
+  }, [files]);
 
   const fetchFiles = async () => {
     try {
@@ -35,23 +45,45 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
 
   const uploadFiles = async (fileArray) => {
     if (fileArray.length === 0) return;
+
+    // Skip files that already exist (server-side) or are duplicated within this batch.
+    const existingNames = new Set(files.map(f => f.name.toLowerCase()));
+    const skipped = [];
+    const toUpload = [];
+    for (const file of fileArray) {
+      const key = file.name.toLowerCase();
+      if (existingNames.has(key)) {
+        skipped.push(file.name);
+      } else {
+        existingNames.add(key);
+        toUpload.push(file);
+      }
+    }
+
+    if (toUpload.length === 0) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      alert(`Already uploaded — skipped:\n${skipped.join('\n')}`);
+      return;
+    }
+
     const failedFiles = [];
-    setUploadModal({ current: 0, total: fileArray.length, currentFile: '', phase: 'uploading', failed: [] });
+    setUploadModal({ current: 0, total: toUpload.length, currentFile: '', phase: 'uploading', failed: [], skipped });
     onUploadingChange?.(true);
 
     try {
-      for (let i = 0; i < fileArray.length; i++) {
-        setUploadModal(prev => ({ ...prev, current: i + 1, currentFile: fileArray[i].name }));
+      for (let i = 0; i < toUpload.length; i++) {
+        setUploadModal(prev => ({ ...prev, current: i + 1, currentFile: toUpload[i].name }));
         try {
-          await apiFns.uploadFile(fileArray[i]);
+          await apiFns.uploadFile(toUpload[i]);
         } catch {
-          failedFiles.push(fileArray[i].name);
-          setUploadModal(prev => ({ ...prev, failed: [...prev.failed, fileArray[i].name] }));
+          failedFiles.push(toUpload[i].name);
+          setUploadModal(prev => ({ ...prev, failed: [...prev.failed, toUpload[i].name] }));
         }
       }
       setUploadModal(prev => ({ ...prev, phase: 'done' }));
       fetchFiles();
-      if (failedFiles.length === 0) {
+      if (toUpload.length > failedFiles.length) setMessage(INDEXING_NOTICE);
+      if (failedFiles.length === 0 && skipped.length === 0) {
         autoCloseTimer.current = setTimeout(() => setUploadModal(null), 2000);
       }
     } finally {
@@ -113,7 +145,7 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
     if (!confirm(`Delete ${selected.length} file(s)?`)) return;
     try {
       await Promise.all(selected.map(f => apiFns.deleteFile(f)));
-      setMessage(`🗑️ ${selected.length} file(s) deleted`);
+      setMessage(INDEXING_NOTICE);
       setSelected([]);
       fetchFiles();
     } catch (err) {
@@ -137,6 +169,14 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
 
   return (
     <div style={styles.container}>
+      {/* Status / notice banner */}
+      {message && (
+        <div style={styles.notice}>
+          <span style={{ flex: 1 }}>{message}</span>
+          <button onClick={() => setMessage(null)} style={styles.noticeClose} title="Dismiss">✕</button>
+        </div>
+      )}
+
       {/* Upload Progress Modal */}
       {uploadModal && (
         <div style={styles.modalOverlay}>
@@ -174,11 +214,22 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
                   {uploadModal.total - uploadModal.failed.length} of {uploadModal.total}{' '}
                   file{uploadModal.total !== 1 ? 's' : ''} indexed successfully
                 </p>
+                {uploadModal.total > uploadModal.failed.length && (
+                  <p style={styles.modalNotice}>{INDEXING_NOTICE}</p>
+                )}
                 {uploadModal.failed.length > 0 && (
                   <div style={styles.failedList}>
                     <p style={styles.failedTitle}>Failed:</p>
                     {uploadModal.failed.map(f => (
                       <p key={f} style={styles.failedItem}>• {f}</p>
+                    ))}
+                  </div>
+                )}
+                {uploadModal.skipped?.length > 0 && (
+                  <div style={styles.skippedList}>
+                    <p style={styles.skippedTitle}>Skipped (already uploaded):</p>
+                    {uploadModal.skipped.map(f => (
+                      <p key={f} style={styles.skippedItem}>• {f}</p>
                     ))}
                   </div>
                 )}
@@ -284,6 +335,12 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
                   {formatSize(file.size)} · {new Date(file.uploaded_at).toLocaleDateString()}
                 </p>
               </div>
+              <span
+                style={file.indexed ? styles.indexedBadge : styles.indexingBadge}
+                title={file.indexed ? 'Indexed successfully' : 'Indexing…'}
+              >
+                {file.indexed ? '✅' : '⏳'}
+              </span>
               <button
                 style={styles.rowDownloadBtn}
                 title="Download"
@@ -307,6 +364,39 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
 
 const styles = {
   container: { padding: '10px 0' },
+  notice: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '10px 14px',
+    marginBottom: 12,
+    borderRadius: 8,
+    background: '#fffbea',
+    border: '1px solid #f6e05e',
+    color: '#975a16',
+    fontSize: 13,
+    fontWeight: 600,
+  },
+  noticeClose: {
+    background: 'none',
+    border: 'none',
+    color: '#975a16',
+    cursor: 'pointer',
+    fontSize: 14,
+    lineHeight: 1,
+    padding: 2,
+    flexShrink: 0,
+  },
+  modalNotice: {
+    margin: 0,
+    fontSize: 12,
+    color: '#975a16',
+    background: '#fffbea',
+    border: '1px solid #f6e05e',
+    borderRadius: 8,
+    padding: '8px 12px',
+    width: '100%',
+  },
   toolbar: {
     display: 'flex',
     gap: 10,
@@ -358,6 +448,15 @@ const styles = {
     fontSize: 14,
     fontWeight: 'bold',
     flex: '1 1 auto',
+  },
+  indexedBadge: {
+    fontSize: 14,
+    flexShrink: 0,
+  },
+  indexingBadge: {
+    fontSize: 14,
+    flexShrink: 0,
+    opacity: 0.7,
   },
   rowDownloadBtn: {
     background: 'none',
@@ -489,6 +588,25 @@ const styles = {
     margin: '2px 0 0 0',
     fontSize: 12,
     color: '#e53e3e',
+    wordBreak: 'break-all',
+  },
+  skippedList: {
+    width: '100%',
+    background: '#fffbea',
+    borderRadius: 8,
+    padding: '8px 12px',
+    textAlign: 'left',
+  },
+  skippedTitle: {
+    margin: '0 0 4px 0',
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#b7791f',
+  },
+  skippedItem: {
+    margin: '2px 0 0 0',
+    fontSize: 12,
+    color: '#b7791f',
     wordBreak: 'break-all',
   },
   closeBtn: {

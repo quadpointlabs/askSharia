@@ -189,6 +189,45 @@ def index_user_files(user_id: str, file_dir: str):
     logger.info("Indexed %d documents for user %s", len(documents), user_id)
 
 
+def get_indexed_filenames(user_id: str) -> set:
+    """Return the set of file names that have at least one indexed point for this user.
+
+    Used to show indexing status in the UI. Returns an empty set if the collection
+    does not exist yet or Qdrant is unreachable, so listing never fails on this.
+    """
+    try:
+        client, _, _, _ = _get_resources()
+    except Exception:
+        logger.exception("Could not init resources while reading indexed filenames for %s", user_id)
+        return set()
+
+    user_filter = Filter(
+        must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))]
+    )
+    names = set()
+    offset = None
+    try:
+        while True:
+            points, offset = client.scroll(
+                collection_name=COLLECTION_NAME,
+                scroll_filter=user_filter,
+                with_payload=["file_name"],
+                with_vectors=False,
+                limit=256,
+                offset=offset,
+            )
+            for p in points:
+                fn = (p.payload or {}).get("file_name")
+                if fn:
+                    names.add(fn)
+            if offset is None:
+                break
+    except Exception:
+        logger.exception("Failed to read indexed filenames for user %s", user_id)
+        return set()
+    return names
+
+
 def delete_user_files(user_id: str):
     logger.info("Deleting indexed documents for user %s", user_id)
     client, _, _, _ = _get_resources()

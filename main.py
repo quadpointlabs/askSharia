@@ -10,6 +10,7 @@ from typing import List, Optional
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import smtplib
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 from database import get_db, User, Admin, Owner, ChatSession, ChatMessage, SessionLocal, engine
 from auth import hash_password, verify_password, create_access_token, get_current_user, get_current_owner, get_current_admin
-from indexer import delete_user_files, index_user_files, SUPPORTED_EXTENSIONS
+from indexer import delete_user_files, index_user_files, get_indexed_filenames, SUPPORTED_EXTENSIONS
 
 from llama_index.core import VectorStoreIndex
 from llama_index.core.memory import ChatMemoryBuffer
@@ -351,6 +352,35 @@ def get_chat_engine(cache_key: str, user_ids: list):
     return sessions[cache_key]
 
 
+# Token pricing knobs for question complexity
+_TOKEN_WORDS_PER_UNIT = 25   # +1 token for each block of this many words
+_TOKEN_MAX_COST = 10         # cap so a single question can never drain everything
+
+
+def compute_question_cost(question: str) -> int:
+    """How many tokens a question costs. Always at least 1; longer or multi-part
+    (more complex) questions cost more, capped at _TOKEN_MAX_COST.
+
+    Complexity is derived from what the question contains:
+      - length in words (longer questions cost more)
+      - number of distinct questions asked (each extra '?' / '؟' adds one)
+    """
+    text = (question or "").strip()
+    if not text:
+        return 1
+
+    word_count = len(re.findall(r"\S+", text))
+    cost = 1 + word_count // _TOKEN_WORDS_PER_UNIT
+
+    # Multi-part questions cost one extra token per additional question mark
+    # (supports the Arabic question mark '؟' as well as '?').
+    question_marks = text.count("?") + text.count("؟")
+    if question_marks > 1:
+        cost += question_marks - 1
+
+    return max(1, min(cost, _TOKEN_MAX_COST))
+
+
 @app.post("/chat")
 def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     is_owner = isinstance(current_user, Owner)
@@ -407,10 +437,13 @@ def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: S
         # Step 5: Build deduplicated sources list
         sources = list(file_to_info.values())
 
-        # Deduct one token for regular users after a successful response
+        # Deduct tokens for regular users after a successful response.
+        # Cost scales with question complexity (min 1).
         tokens_remaining = None
+        tokens_charged = None
         if not is_owner:
-            current_user.tokens = max(0, current_user.tokens - 1)
+            tokens_charged = compute_question_cost(req.question)
+            current_user.tokens = max(0, current_user.tokens - tokens_charged)
             db.add(current_user)
             db.commit()
             tokens_remaining = current_user.tokens
@@ -433,6 +466,7 @@ def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: S
             "answer": answer,
             "sources": sources,
             "tokens_remaining": tokens_remaining,
+            "tokens_charged": tokens_charged,
         }
     except HTTPException:
         raise
@@ -506,11 +540,13 @@ def list_files(current_user: User = Depends(get_current_user)):
     user_dir = UPLOAD_DIR / current_user.id
     if not user_dir.exists():
         return {"files": []}
+    indexed_names = get_indexed_filenames(current_user.id)
     files = [
         {
             "name": f.name,
             "size": f.stat().st_size,
             "uploaded_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+            "indexed": f.name in indexed_names,
         }
         for f in user_dir.iterdir() if f.is_file()
     ]
@@ -575,11 +611,13 @@ def owner_list_files(current_owner: Owner = Depends(get_current_owner)):
     shared_dir = UPLOAD_DIR / SHARED_OWNER_ID
     if not shared_dir.exists():
         return {"files": []}
+    indexed_names = get_indexed_filenames(SHARED_OWNER_ID)
     files = [
         {
             "name": f.name,
             "size": f.stat().st_size,
             "uploaded_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+            "indexed": f.name in indexed_names,
         }
         for f in shared_dir.iterdir() if f.is_file()
     ]
