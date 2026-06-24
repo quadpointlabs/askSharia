@@ -473,12 +473,6 @@ function TokensPanel({ tokens, plan = 'free', t }) {
           <div style={tp.infoDesc}>{t.includedWithPlan}</div>
         </div>
         <div style={tp.infoCard}>
-          <div style={tp.infoIcon}>💬</div>
-          <div style={tp.infoTitle}>{t.perMessage}</div>
-          <div style={tp.infoValue}>{t.oneToken}</div>
-          <div style={tp.infoDesc}>{t.perMessageDesc}</div>
-        </div>
-        <div style={tp.infoCard}>
           <div style={tp.infoIcon}>📦</div>
           <div style={tp.infoTitle}>{t.needMore}</div>
           <div style={tp.infoValue}>{t.updatePlan}</div>

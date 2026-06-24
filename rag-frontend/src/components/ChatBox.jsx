@@ -51,7 +51,8 @@ export default function ChatBox({ userId, chatId, isUploading, sendMessageFn = s
       setMessages(prev => [...prev, {
         role: 'bot',
         text: res.data.answer,
-        sources: res.data.sources
+        sources: res.data.sources,
+        tokensCharged: res.data.tokens_charged,
       }]);
       if (res.data.tokens_remaining !== null && res.data.tokens_remaining !== undefined) {
         onTokenUsed?.(res.data.tokens_remaining);
@@ -130,6 +131,11 @@ export default function ChatBox({ userId, chatId, isUploading, sendMessageFn = s
                 </div>
               ) : (
                 <p style={{ margin: 0, direction: 'auto' }}>{msg.text}</p>
+              )}
+              {msg.role === 'bot' && msg.tokensCharged != null && (
+                <div style={styles.tokensUsed}>
+                  🪙 {msg.tokensCharged} token{msg.tokensCharged !== 1 ? 's' : ''} used
+                </div>
               )}
               {msg.sources && msg.sources.length > 0 && (
                 <div style={styles.sourcesContainer}>
@@ -269,6 +275,12 @@ const styles = {
     margin: '6px 0 0 0',
     fontSize: 11,
     opacity: 0.7,
+  },
+  tokensUsed: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#8a6d3b',
   },
   markdown: {
     margin: 0,
