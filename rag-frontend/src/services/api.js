@@ -78,6 +78,9 @@ export const ownerUploadFile = (file) => {
 export const ownerDeleteFile = (filename) =>
   ownerApi.delete(`/owner/files/${filename}`);
 
+export const ownerReindexFile = (filename) =>
+  ownerApi.post(`/owner/files/${filename}/reindex`);
+
 export const ownerDownloadFile = (filename) =>
   ownerApi.get(`/owner/files/${filename}/download`, { responseType: 'blob' });
 
@@ -123,6 +126,9 @@ export const listFiles = () =>
 
 export const deleteFile = (filename) =>
   api.delete(`/files/${filename}`);
+
+export const reindexFile = (filename) =>
+  api.post(`/files/${filename}/reindex`);
 
 export const downloadFile = (filename) =>
   api.get(`/files/${filename}/download`, { responseType: 'blob' });

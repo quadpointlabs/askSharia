@@ -1,6 +1,6 @@
 import logging
 import sys
-from sqlalchemy import create_engine, Column, String, DateTime, Boolean, Integer
+from sqlalchemy import create_engine, Column, String, DateTime, Boolean, Integer, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import uuid
@@ -64,6 +64,29 @@ class ChatMessage(Base):
     content = Column(String, nullable=False)
     sources = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class FileStatus(Base):
+    """Explicit indexing state for an uploaded file.
+
+    Status is tracked here rather than inferred from Qdrant so that a file whose
+    indexing failed or was interrupted shows a definite state (and can be retried)
+    instead of being stuck at "indexing…" forever.
+
+    owner_id is the indexing namespace — a real user id, or SHARED_OWNER_ID for
+    owner/shared uploads.
+    """
+    __tablename__ = "file_status"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id = Column(String, nullable=False, index=True)
+    file_name = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pending")  # pending | indexed | failed
+    error = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("owner_id", "file_name", name="uix_file_status_owner_name"),
+    )
 
 
 try:

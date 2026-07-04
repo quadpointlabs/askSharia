@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { listFiles, uploadFile, deleteFile, downloadFile } from '../services/api';
+import { listFiles, uploadFile, deleteFile, downloadFile, reindexFile } from '../services/api';
 
 export default function FileManager({ onUploadingChange, apiOverrides }) {
   const apiFns = {
@@ -7,6 +7,7 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
     uploadFile,
     deleteFile,
     downloadFile,
+    reindexFile,
     ...apiOverrides,
   };
   const [files, setFiles] = useState([]);
@@ -27,9 +28,11 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
     return () => { if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current); };
   }, []);
 
-  // While any file is still indexing, poll until all are indexed.
+  // While any file is still indexing (pending), poll until it settles.
+  // Failed files are terminal (until the user retries), so they don't keep polling.
   useEffect(() => {
-    if (!files.some(f => !f.indexed)) return;
+    const isPending = f => (f.status ? f.status === 'pending' : !f.indexed);
+    if (!files.some(isPending)) return;
     const timer = setInterval(fetchFiles, 5000);
     return () => clearInterval(timer);
   }, [files]);
@@ -118,6 +121,18 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
     setDragOver(false);
     const dropped = Array.from(e.dataTransfer.files);
     await uploadFiles(dropped);
+  };
+
+  const handleReindex = async (filename) => {
+    try {
+      await apiFns.reindexFile(filename);
+      // Optimistically flip to pending so the spinner shows and polling resumes.
+      setFiles(prev => prev.map(f =>
+        f.name === filename ? { ...f, status: 'pending', indexed: false, error: null } : f
+      ));
+    } catch {
+      setMessage('❌ Retry failed');
+    }
   };
 
   const handleDownload = async (filename) => {
@@ -335,12 +350,31 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
                   {formatSize(file.size)} · {new Date(file.uploaded_at).toLocaleDateString()}
                 </p>
               </div>
-              <span
-                style={file.indexed ? styles.indexedBadge : styles.indexingBadge}
-                title={file.indexed ? 'Indexed successfully' : 'Indexing…'}
-              >
-                {file.indexed ? '✅' : '⏳'}
-              </span>
+              {(() => {
+                const status = file.status || (file.indexed ? 'indexed' : 'pending');
+                if (status === 'indexed') {
+                  return (
+                    <span style={styles.indexedBadge} title="Indexed successfully">✅</span>
+                  );
+                }
+                if (status === 'failed') {
+                  return (
+                    <span style={styles.failedBadgeWrap}>
+                      <span style={styles.failedBadge} title={file.error || 'Indexing failed'}>❌</span>
+                      <button
+                        style={styles.retryBtn}
+                        title="Retry indexing"
+                        onClick={e => { e.stopPropagation(); handleReindex(file.name); }}
+                      >
+                        ↻
+                      </button>
+                    </span>
+                  );
+                }
+                return (
+                  <span style={styles.indexingBadge} title="Indexing…">⏳</span>
+                );
+              })()}
               <button
                 style={styles.rowDownloadBtn}
                 title="Download"
@@ -457,6 +491,26 @@ const styles = {
     fontSize: 14,
     flexShrink: 0,
     opacity: 0.7,
+  },
+  failedBadgeWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 0,
+  },
+  failedBadge: {
+    fontSize: 14,
+    cursor: 'help',
+  },
+  retryBtn: {
+    background: 'none',
+    border: '1px solid #ddd',
+    borderRadius: 4,
+    cursor: 'pointer',
+    fontSize: 13,
+    lineHeight: 1,
+    padding: '2px 5px',
+    color: '#667eea',
   },
   rowDownloadBtn: {
     background: 'none',

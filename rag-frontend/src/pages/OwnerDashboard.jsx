@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerListChats, ownerCreateChat, ownerGetMessages, ownerRenameChat, ownerGetReport, ownerGetSystemPrompt, ownerSetSystemPrompt, ownerListUserFiles } from '../services/api';
+import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerReindexFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerListChats, ownerCreateChat, ownerGetMessages, ownerRenameChat, ownerGetReport, ownerGetSystemPrompt, ownerSetSystemPrompt, ownerListUserFiles } from '../services/api';
 
 const OWNER_FILE_API = {
   listFiles: ownerListFiles,
   uploadFile: ownerUploadFile,
   deleteFile: ownerDeleteFile,
   downloadFile: ownerDownloadFile,
+  reindexFile: ownerReindexFile,
 };
 import chatIcon from '../assets/chatting.jpg';
 import ChatBox from '../components/ChatBox';

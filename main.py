@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from database import get_db, User, Admin, Owner, ChatSession, ChatMessage, SessionLocal, engine
+from database import get_db, User, Admin, Owner, ChatSession, ChatMessage, FileStatus, SessionLocal, engine
 from auth import hash_password, verify_password, create_access_token, get_current_user, get_current_owner, get_current_admin
 from indexer import delete_user_files, index_user_files, get_indexed_filenames, SUPPORTED_EXTENSIONS
 
@@ -475,11 +475,67 @@ def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: S
         raise HTTPException(status_code=500, detail="Chat service error. Please try again.")
 
 
+# ── File indexing status ──────────────────────────────────────
+def _set_file_status(owner_id: str, file_name: str, status: str, error: str = None):
+    """Upsert the indexing status for a file. Runs in its own DB session so it is
+    safe to call from background tasks (which have no request-scoped session)."""
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(FileStatus)
+            .filter(FileStatus.owner_id == owner_id, FileStatus.file_name == file_name)
+            .first()
+        )
+        if row is None:
+            row = FileStatus(owner_id=owner_id, file_name=file_name, status=status, error=error)
+            db.add(row)
+        else:
+            row.status = status
+            row.error = error
+            row.updated_at = datetime.utcnow()
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to record file status for %s / %s", owner_id, file_name)
+    finally:
+        db.close()
+
+
+def _get_file_statuses(owner_id: str) -> dict:
+    """Return {file_name: {"status": ..., "error": ...}} for an owner."""
+    db = SessionLocal()
+    try:
+        rows = db.query(FileStatus).filter(FileStatus.owner_id == owner_id).all()
+        return {r.file_name: {"status": r.status, "error": r.error} for r in rows}
+    except Exception:
+        logger.exception("Failed to read file statuses for %s", owner_id)
+        return {}
+    finally:
+        db.close()
+
+
+def _clear_file_status(owner_id: str, file_name: str):
+    db = SessionLocal()
+    try:
+        db.query(FileStatus).filter(
+            FileStatus.owner_id == owner_id, FileStatus.file_name == file_name
+        ).delete()
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to clear file status for %s / %s", owner_id, file_name)
+    finally:
+        db.close()
+
+
 # ── File Upload ───────────────────────────────────────────────
 def _index_file_background(index_id: str, file_dir: str, dest: Path, clear_all_sessions: bool):
     """Index an uploaded file and refresh chat caches. Runs after the response is sent.
 
-    On failure the offending file is removed so a later upload can retry cleanly.
+    The file's status is tracked in the DB so the UI shows a definite state. On
+    failure the file is kept (marked "failed") so the user can retry from the UI.
+    A run that produces no Qdrant points (e.g. no extractable text) is also
+    reported as failed instead of being left stuck at "indexing…".
     """
     try:
         index_user_files(user_id=index_id, file_dir=file_dir)
@@ -487,11 +543,21 @@ def _index_file_background(index_id: str, file_dir: str, dest: Path, clear_all_s
             sessions.clear()
         else:
             sessions.pop(index_id, None)
-        logger.info("Background indexing complete for %s, file %s", index_id, dest.name)
-    except Exception:
+
+        # A successful run must have produced at least one point for this file,
+        # otherwise nothing was actually indexed (empty / no extractable text).
+        if dest.name in get_indexed_filenames(index_id):
+            _set_file_status(index_id, dest.name, "indexed")
+            logger.info("Background indexing complete for %s, file %s", index_id, dest.name)
+        else:
+            _set_file_status(
+                index_id, dest.name, "failed",
+                "No text could be extracted from this file, so nothing was indexed.",
+            )
+            logger.warning("Indexing produced no content for %s, file %s", index_id, dest.name)
+    except Exception as e:
         logger.exception("Background indexing failed for %s, file %s", index_id, dest.name)
-        if dest.exists():
-            dest.unlink(missing_ok=True)
+        _set_file_status(index_id, dest.name, "failed", str(e) or "Indexing failed.")
 
 
 def _save_upload(file: UploadFile, target_dir: Path) -> Path:
@@ -524,6 +590,7 @@ async def upload_file(
 ):
     user_dir = UPLOAD_DIR / current_user.id
     dest = _save_upload(file, user_dir)
+    _set_file_status(current_user.id, dest.name, "pending")
     background_tasks.add_task(
         _index_file_background, current_user.id, str(user_dir), dest, False
     )
@@ -534,23 +601,65 @@ async def upload_file(
     }
 
 
+def _build_file_list(index_id: str, file_dir: Path) -> list:
+    """Build the file listing for a namespace, using tracked indexing status.
+
+    Falls back to Qdrant presence for files that predate status tracking (no row
+    yet) so previously-indexed files still show as indexed.
+    """
+    statuses = _get_file_statuses(index_id)
+    indexed_names = None  # lazily fetched only if a legacy file is encountered
+    files = []
+    for f in file_dir.iterdir():
+        if not f.is_file():
+            continue
+        tracked = statuses.get(f.name)
+        if tracked is None:
+            if indexed_names is None:
+                indexed_names = get_indexed_filenames(index_id)
+            status = "indexed" if f.name in indexed_names else "pending"
+            error = None
+        else:
+            status = tracked["status"]
+            error = tracked["error"]
+        files.append({
+            "name": f.name,
+            "size": f.stat().st_size,
+            "uploaded_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+            "indexed": status == "indexed",
+            "status": status,
+            "error": error,
+        })
+    return files
+
+
 # ── List User Files ───────────────────────────────────────────
 @app.get("/files")
 def list_files(current_user: User = Depends(get_current_user)):
     user_dir = UPLOAD_DIR / current_user.id
     if not user_dir.exists():
         return {"files": []}
-    indexed_names = get_indexed_filenames(current_user.id)
-    files = [
-        {
-            "name": f.name,
-            "size": f.stat().st_size,
-            "uploaded_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-            "indexed": f.name in indexed_names,
-        }
-        for f in user_dir.iterdir() if f.is_file()
-    ]
-    return {"files": files}
+    return {"files": _build_file_list(current_user.id, user_dir)}
+
+
+# ── Retry indexing a failed file ──────────────────────────────
+@app.post("/files/{filename}/reindex", status_code=202)
+def reindex_file(
+    filename: str,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+):
+    if filename != Path(filename).name:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    user_dir = UPLOAD_DIR / current_user.id
+    dest = user_dir / filename
+    if not dest.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    _set_file_status(current_user.id, filename, "pending")
+    background_tasks.add_task(
+        _index_file_background, current_user.id, str(user_dir), dest, False
+    )
+    return {"message": f"Re-indexing '{filename}'", "file": filename, "status": "indexing"}
 
 
 # ── Download a File ──────────────────────────────────────────
@@ -575,6 +684,7 @@ def delete_file(filename: str, current_user: User = Depends(get_current_user)):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     file_path.unlink()
+    _clear_file_status(current_user.id, filename)
     sessions.pop(current_user.id, None)
     try:
         delete_user_files(current_user.id)
@@ -596,6 +706,7 @@ async def owner_upload_file(
 ):
     shared_dir = UPLOAD_DIR / SHARED_OWNER_ID
     dest = _save_upload(file, shared_dir)
+    _set_file_status(SHARED_OWNER_ID, dest.name, "pending")
     background_tasks.add_task(
         _index_file_background, SHARED_OWNER_ID, str(shared_dir), dest, True
     )
@@ -611,17 +722,26 @@ def owner_list_files(current_owner: Owner = Depends(get_current_owner)):
     shared_dir = UPLOAD_DIR / SHARED_OWNER_ID
     if not shared_dir.exists():
         return {"files": []}
-    indexed_names = get_indexed_filenames(SHARED_OWNER_ID)
-    files = [
-        {
-            "name": f.name,
-            "size": f.stat().st_size,
-            "uploaded_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-            "indexed": f.name in indexed_names,
-        }
-        for f in shared_dir.iterdir() if f.is_file()
-    ]
-    return {"files": files}
+    return {"files": _build_file_list(SHARED_OWNER_ID, shared_dir)}
+
+
+@app.post("/owner/files/{filename}/reindex", status_code=202)
+def owner_reindex_file(
+    filename: str,
+    background_tasks: BackgroundTasks,
+    current_owner: Owner = Depends(get_current_owner),
+):
+    if filename != Path(filename).name:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    shared_dir = UPLOAD_DIR / SHARED_OWNER_ID
+    dest = shared_dir / filename
+    if not dest.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    _set_file_status(SHARED_OWNER_ID, filename, "pending")
+    background_tasks.add_task(
+        _index_file_background, SHARED_OWNER_ID, str(shared_dir), dest, True
+    )
+    return {"message": f"Re-indexing '{filename}'", "file": filename, "status": "indexing"}
 
 
 @app.get("/owner/files/{filename}/download")
@@ -643,6 +763,7 @@ def owner_delete_file(filename: str, current_owner: Owner = Depends(get_current_
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     file_path.unlink()
+    _clear_file_status(SHARED_OWNER_ID, filename)
     sessions.clear()
     try:
         delete_user_files(SHARED_OWNER_ID)
