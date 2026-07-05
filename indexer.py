@@ -356,6 +356,30 @@ def delete_user_files(user_id: str):
     logger.info("Deleted indexed documents for user %s", user_id)
 
 
+def delete_file_vectors(user_id: str, file_name: str):
+    """Delete only the vectors for a single file belonging to this user.
+
+    Unlike delete_user_files (which drops every vector for the user), this
+    filters on both user_id and file_name so deleting one file never touches
+    the rest of the collection — and no re-index is required afterwards.
+    """
+    logger.info("Deleting indexed vectors for user %s, file %s", user_id, file_name)
+    client, _, _, _ = _get_resources()
+
+    file_filter = Filter(
+        must=[
+            FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+            FieldCondition(key="file_name", match=MatchValue(value=file_name)),
+        ]
+    )
+
+    client.delete(
+        collection_name=COLLECTION_NAME,
+        points_selector=FilterSelector(filter=file_filter),
+    )
+    logger.info("Deleted vectors for user %s, file %s", user_id, file_name)
+
+
 def main(args):
     index_user_files(user_id=args.user, file_dir=args.dir)
 

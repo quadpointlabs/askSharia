@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 from database import get_db, User, Admin, Owner, ChatSession, ChatMessage, FileStatus, SessionLocal, engine
 from auth import hash_password, verify_password, create_access_token, get_current_user, get_current_owner, get_current_admin
-from indexer import delete_user_files, index_user_files, get_indexed_filenames, SUPPORTED_EXTENSIONS
+from indexer import delete_file_vectors, index_user_files, get_indexed_filenames, SUPPORTED_EXTENSIONS
 
 from llama_index.core import VectorStoreIndex
 from llama_index.core.memory import ChatMemoryBuffer
@@ -687,10 +687,7 @@ def delete_file(filename: str, current_user: User = Depends(get_current_user)):
     _clear_file_status(current_user.id, filename)
     sessions.pop(current_user.id, None)
     try:
-        delete_user_files(current_user.id)
-        remaining = [f for f in user_dir.iterdir() if f.is_file()]
-        if remaining:
-            index_user_files(user_id=current_user.id, file_dir=str(user_dir))
+        delete_file_vectors(current_user.id, filename)
     except Exception:
         logger.exception("Index update failed after deleting %s for user %s", filename, current_user.id)
         raise HTTPException(status_code=500, detail="File deleted but index update failed. Search results may be stale.")
@@ -766,10 +763,7 @@ def owner_delete_file(filename: str, current_owner: Owner = Depends(get_current_
     _clear_file_status(SHARED_OWNER_ID, filename)
     sessions.clear()
     try:
-        delete_user_files(SHARED_OWNER_ID)
-        remaining = [f for f in shared_dir.iterdir() if f.is_file()]
-        if remaining:
-            index_user_files(user_id=SHARED_OWNER_ID, file_dir=str(shared_dir))
+        delete_file_vectors(SHARED_OWNER_ID, filename)
     except Exception:
         logger.exception("Index update failed after deleting %s for owner %s", filename, current_owner.id)
         raise HTTPException(status_code=500, detail="File deleted but index update failed.")
