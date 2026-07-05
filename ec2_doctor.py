@@ -70,6 +70,28 @@ try:
 except Exception as e:
     line("egress api.anthropic.com:443", False, repr(e))
 
+# 7b. Embedding + Qdrant pipeline (the part downstream of extraction).
+#     This is what index_user_files does after reading the file.
+print("-" * 70)
+print("QDRANT_URL:", os.getenv("QDRANT_URL", "localhost"), "port 6333")
+try:
+    import indexer as _idx
+    client, embed_model, storage_context, splitter = _idx._get_resources()
+    line("_get_resources (embed+qdrant)", True, "initialized")
+    try:
+        v = embed_model.get_text_embedding("اختبار عربي")
+        line("embed model (e5-large)", True, f"dim={len(v)}")
+    except Exception as e:
+        line("embed model (e5-large)", False, repr(e))
+    try:
+        cols = [c.name for c in client.get_collections().collections]
+        line("qdrant reachable", True, f"collections={cols}")
+    except Exception as e:
+        line("qdrant reachable", False, repr(e))
+except Exception:
+    line("_get_resources (embed+qdrant)", False, "see traceback below")
+    traceback.print_exc()
+
 # 8. Optional: run the real reader on a given file
 if len(sys.argv) > 1:
     f = sys.argv[1]
