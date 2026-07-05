@@ -9,7 +9,7 @@ from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.readers.base import BaseReader
 from llama_index.core.schema import Document
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.readers.file import DocxReader, PptxReader, PandasExcelReader
+from llama_index.readers.file import DocxReader, PandasExcelReader
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue, FilterSelector
@@ -139,6 +139,73 @@ class ImageOCRReader(BaseReader):
             raise RuntimeError(f"OCR failed for '{path.name}': {e}") from e
 
 
+# Embedded images smaller than this (max dimension, px) are treated as decorative
+# icons/logos and skipped, to avoid a wasted Claude call per bullet point.
+_PPTX_MIN_IMAGE_DIM = 100
+
+
+def _ocr_pptx_image(blob: bytes) -> str:
+    """OCR a raw image blob from a PPTX slide via Claude. Returns '' if unusable."""
+    try:
+        img = Image.open(io.BytesIO(blob))
+    except Exception:
+        # Vector formats (EMF/WMF) and the like can't be rasterized here — skip.
+        return ""
+    if max(img.size) < _PPTX_MIN_IMAGE_DIM:
+        return ""
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="PNG")
+    img_b64 = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+    return _claude_ocr(img_b64, "image/png").strip()
+
+
+class SmartPptxReader(BaseReader):
+    """Extracts typed text, tables and speaker notes from PPTX, and OCRs embedded
+    images via Claude — so mixed decks (typed Arabic + image-of-Arabic) index fully."""
+
+    def load_data(self, file, extra_info=None):
+        from pptx import Presentation
+        from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+        path = Path(file)
+
+        def walk(shapes, parts):
+            for shape in shapes:
+                if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+                    walk(shape.shapes, parts)
+                    continue
+                if shape.has_text_frame:
+                    t = shape.text_frame.text.strip()
+                    if t:
+                        parts.append(t)
+                if shape.has_table:
+                    for row in shape.table.rows:
+                        parts.append("\t".join(c.text.strip() for c in row.cells))
+                if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                    try:
+                        ocr = _ocr_pptx_image(shape.image.blob)
+                        if ocr:
+                            parts.append(ocr)
+                    except Exception:
+                        logger.exception("Image OCR failed on a slide in %s", path.name)
+
+        try:
+            prs = Presentation(str(file))
+            slides_text = []
+            for slide in prs.slides:
+                parts = []
+                walk(slide.shapes, parts)
+                if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
+                    note = slide.notes_slide.notes_text_frame.text.strip()
+                    if note:
+                        parts.append(note)
+                if parts:
+                    slides_text.append("\n".join(parts))
+            return [Document(text="\n\n".join(slides_text), metadata=extra_info or {})]
+        except Exception as e:
+            raise RuntimeError(f"Failed to read PPTX '{path.name}': {e}") from e
+
+
 SUPPORTED_EXTENSIONS = [
     ".pdf",
     ".txt",
@@ -149,7 +216,7 @@ SUPPORTED_EXTENSIONS = [
 _FILE_EXTRACTOR = {
     ".pdf":  SmartPDFReader(),
     ".docx": DocxReader(),
-    ".pptx": PptxReader(),
+    ".pptx": SmartPptxReader(),
     ".xlsx": PandasExcelReader(),
     ".xls":  PandasExcelReader(),
     ".jpg":  ClaudeVisionReader(),   # ← Claude instead of Tesseract
@@ -187,6 +254,20 @@ def _get_resources():
     return _client, _embed_model, _storage_context, _splitter
 
 
+def _gather_supported_files(file_dir: str) -> list:
+    """Recursively collect supported files, matching extensions case-insensitively.
+
+    SimpleDirectoryReader's ``required_exts`` filter is case-sensitive, so a file
+    named ``deck.PPTX`` (uppercase) would be silently skipped. We enumerate the
+    files ourselves and pass them via ``input_files`` instead.
+    """
+    allowed = {e.lower() for e in SUPPORTED_EXTENSIONS}
+    return sorted(
+        str(p) for p in Path(file_dir).rglob("*")
+        if p.is_file() and p.suffix.lower() in allowed
+    )
+
+
 def index_user_files(user_id: str, file_dir: str):
     if not os.path.isdir(file_dir) or not os.listdir(file_dir):
         raise ValueError(f"No files found in directory: {file_dir}")
@@ -194,10 +275,12 @@ def index_user_files(user_id: str, file_dir: str):
     logger.info("Indexing files for user %s from directory %s", user_id, file_dir)
     client, embed_model, storage_context, splitter = _get_resources()
 
+    input_files = _gather_supported_files(file_dir)
+    if not input_files:
+        raise ValueError(f"No supported files found in directory: {file_dir}")
+
     documents = SimpleDirectoryReader(
-        input_dir=file_dir,
-        recursive=True,
-        required_exts=SUPPORTED_EXTENSIONS,
+        input_files=input_files,
         file_extractor=_FILE_EXTRACTOR,
     ).load_data()
     for doc in documents:
