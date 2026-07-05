@@ -20,15 +20,62 @@ import pypdf
 from pdf2image import convert_from_path
 import anthropic
 import base64
+import io
 
 # Tesseract language pack — extend this string if more languages are needed
 _OCR_LANG = "eng+ara+heb"
 # PDFs with fewer characters than this per page are treated as scanned
 _OCR_TEXT_THRESHOLD = 50
 
+# Claude model used for vision OCR — far better than Tesseract for Arabic/Hebrew
+_VISION_MODEL = "claude-haiku-4-5-20251001"
+_OCR_PROMPT = (
+    "Please extract ALL text from this image exactly as it appears. "
+    "Preserve the original language (Arabic, Hebrew, English). "
+    "Do not translate or summarize — just extract the raw text. "
+    "If the image contains no readable text, return an empty response."
+)
+
+_anthropic_client = None
+
+
+def _get_anthropic_client():
+    global _anthropic_client
+    if _anthropic_client is None:
+        _anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    return _anthropic_client
+
+
+def _claude_ocr(image_b64: str, media_type: str) -> str:
+    """Send a base64-encoded image to Claude and return the extracted text."""
+    client = _get_anthropic_client()
+    message = client.messages.create(
+        model=_VISION_MODEL,
+        max_tokens=4096,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": image_b64,
+                        },
+                    },
+                    {"type": "text", "text": _OCR_PROMPT},
+                ],
+            }
+        ],
+    )
+    if not message.content:
+        return ""
+    return message.content[0].text or ""
+
 
 class SmartPDFReader(BaseReader):
-    """Extracts text from PDFs; falls back to Tesseract OCR for scanned/image-only pages."""
+    """Extracts text from PDFs; falls back to Claude Vision OCR for scanned/image-only pages."""
 
     def load_data(self, file, extra_info=None):
         path = Path(file)
@@ -41,8 +88,15 @@ class SmartPDFReader(BaseReader):
 
             avg_chars = sum(len(t) for t in pages_text) / max(len(pages_text), 1)
             if avg_chars < _OCR_TEXT_THRESHOLD:
+                # Scanned/image-only PDF — rasterize each page and OCR via Claude,
+                # which is dramatically better than Tesseract for Arabic/Hebrew.
                 images = convert_from_path(str(path))
-                pages_text = [pytesseract.image_to_string(img, lang=_OCR_LANG) for img in images]
+                pages_text = []
+                for img in images:
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    page_b64 = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+                    pages_text.append(_claude_ocr(page_b64, "image/png"))
 
             return [Document(text="\n\n".join(pages_text), metadata=extra_info or {})]
         except Exception as e:
@@ -68,36 +122,7 @@ class ClaudeVisionReader(BaseReader):
             }
             media_type = media_type_map.get(ext, "image/jpeg")
 
-            client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-            message = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=4096,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": media_type,
-                                    "data": image_data,
-                                },
-                            },
-                            {
-                                "type": "text",
-                                "text": "Please extract ALL text from this image exactly as it appears. "
-                                       "Preserve the original language (Arabic, Hebrew, English). "
-                                       "Do not translate or summarize — just extract the raw text."
-                            }
-                        ],
-                    }
-                ],
-            )
-
-            if not message.content:
-                raise RuntimeError("Claude returned an empty response")
-            extracted_text = message.content[0].text
+            extracted_text = _claude_ocr(image_data, media_type)
             return [Document(text=extracted_text, metadata=extra_info or {})]
         except Exception as e:
             raise RuntimeError(f"Failed to extract text from image '{path.name}': {e}") from e
