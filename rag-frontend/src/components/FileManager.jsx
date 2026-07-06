@@ -18,6 +18,7 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
   const dragCounter = useRef(0);
   const fileInputRef = useRef(null);
   const autoCloseTimer = useRef(null);
+  const fileListRef = useRef(null);
 
   const uploading = uploadModal?.phase === 'uploading';
 
@@ -176,6 +177,26 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
     );
   };
 
+  // Let arrow / page / home-end keys scroll the file list once it's focused,
+  // so it's navigable by keyboard as well as mouse wheel.
+  const handleFileListKeyDown = (e) => {
+    const el = fileListRef.current;
+    if (!el) return;
+    const line = 48;   // ~one row per arrow press
+    const page = el.clientHeight - line;
+    const deltas = {
+      ArrowDown: line,
+      ArrowUp: -line,
+      PageDown: page,
+      PageUp: -page,
+      Home: -el.scrollHeight,
+      End: el.scrollHeight,
+    };
+    if (!(e.key in deltas)) return;
+    e.preventDefault();
+    el.scrollBy({ top: deltas[e.key], behavior: 'smooth' });
+  };
+
   const formatSize = (bytes) => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -327,7 +348,12 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
       {files.length === 0 ? (
         <p style={styles.empty}>No files uploaded yet.</p>
       ) : (
-        <div style={styles.fileList}>
+        <div
+          ref={fileListRef}
+          style={styles.fileList}
+          tabIndex={0}
+          onKeyDown={handleFileListKeyDown}
+        >
           {files.map(file => (
             <div
               key={file.name}
