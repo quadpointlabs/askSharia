@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 from database import get_db, User, Admin, Owner, ChatSession, ChatMessage, FileStatus, SessionLocal, engine
 from auth import hash_password, verify_password, create_access_token, get_current_user, get_current_owner, get_current_admin
-from indexer import delete_file_vectors, index_user_files, get_indexed_filenames, SUPPORTED_EXTENSIONS
+from indexer import delete_file_vectors, index_single_file, get_indexed_filenames, SUPPORTED_EXTENSIONS
 
 from llama_index.core import VectorStoreIndex
 from llama_index.core.memory import ChatMemoryBuffer
@@ -529,7 +529,7 @@ def _clear_file_status(owner_id: str, file_name: str):
 
 
 # ── File Upload ───────────────────────────────────────────────
-def _index_file_background(index_id: str, file_dir: str, dest: Path, clear_all_sessions: bool):
+def _index_file_background(index_id: str, dest: Path, clear_all_sessions: bool):
     """Index an uploaded file and refresh chat caches. Runs after the response is sent.
 
     The file's status is tracked in the DB so the UI shows a definite state. On
@@ -538,7 +538,7 @@ def _index_file_background(index_id: str, file_dir: str, dest: Path, clear_all_s
     reported as failed instead of being left stuck at "indexing…".
     """
     try:
-        index_user_files(user_id=index_id, file_dir=file_dir)
+        index_single_file(user_id=index_id, file_path=str(dest))
         if clear_all_sessions:
             sessions.clear()
         else:
@@ -592,7 +592,7 @@ async def upload_file(
     dest = _save_upload(file, user_dir)
     _set_file_status(current_user.id, dest.name, "pending")
     background_tasks.add_task(
-        _index_file_background, current_user.id, str(user_dir), dest, False
+        _index_file_background, current_user.id, dest, False
     )
     return {
         "message": f"File '{dest.name}' uploaded — indexing in the background",
@@ -657,7 +657,7 @@ def reindex_file(
         raise HTTPException(status_code=404, detail="File not found")
     _set_file_status(current_user.id, filename, "pending")
     background_tasks.add_task(
-        _index_file_background, current_user.id, str(user_dir), dest, False
+        _index_file_background, current_user.id, dest, False
     )
     return {"message": f"Re-indexing '{filename}'", "file": filename, "status": "indexing"}
 
@@ -705,7 +705,7 @@ async def owner_upload_file(
     dest = _save_upload(file, shared_dir)
     _set_file_status(SHARED_OWNER_ID, dest.name, "pending")
     background_tasks.add_task(
-        _index_file_background, SHARED_OWNER_ID, str(shared_dir), dest, True
+        _index_file_background, SHARED_OWNER_ID, dest, True
     )
     return {
         "message": f"File '{dest.name}' uploaded — indexing in the background",
@@ -736,7 +736,7 @@ def owner_reindex_file(
         raise HTTPException(status_code=404, detail="File not found")
     _set_file_status(SHARED_OWNER_ID, filename, "pending")
     background_tasks.add_task(
-        _index_file_background, SHARED_OWNER_ID, str(shared_dir), dest, True
+        _index_file_background, SHARED_OWNER_ID, dest, True
     )
     return {"message": f"Re-indexing '{filename}'", "file": filename, "status": "indexing"}
 

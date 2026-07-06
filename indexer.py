@@ -297,6 +297,43 @@ def index_user_files(user_id: str, file_dir: str):
     logger.info("Indexed %d documents for user %s", len(documents), user_id)
 
 
+def index_single_file(user_id: str, file_path: str):
+    """Index exactly one file for a user, replacing any prior vectors for it.
+
+    Used on upload/reindex so adding a file only embeds that file — unlike
+    index_user_files, which re-reads the whole directory and would duplicate the
+    vectors of every already-indexed file. Existing vectors for this file name
+    are deleted first so re-indexing the same file never leaves stale duplicates.
+    """
+    path = Path(file_path)
+    if not path.is_file():
+        raise ValueError(f"File not found: {file_path}")
+    if path.suffix.lower() not in {e.lower() for e in SUPPORTED_EXTENSIONS}:
+        raise ValueError(f"Unsupported file type: {path.suffix}")
+
+    logger.info("Indexing single file for user %s: %s", user_id, path.name)
+    client, embed_model, storage_context, splitter = _get_resources()
+
+    delete_file_vectors(user_id, path.name)
+
+    documents = SimpleDirectoryReader(
+        input_files=[str(path)],
+        file_extractor=_FILE_EXTRACTOR,
+    ).load_data()
+    for doc in documents:
+        doc.metadata['user_id'] = user_id
+    logger.info("Loaded %d documents from %s for user %s", len(documents), path.name, user_id)
+
+    VectorStoreIndex.from_documents(
+        documents,
+        storage_context=storage_context,
+        embed_model=embed_model,
+        transformations=[splitter],
+        show_progress=True
+    )
+    logger.info("Indexed file %s for user %s", path.name, user_id)
+
+
 def get_indexed_filenames(user_id: str) -> set:
     """Return the set of file names that have at least one indexed point for this user.
 
