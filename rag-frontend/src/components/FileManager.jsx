@@ -12,6 +12,8 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
   };
   const [files, setFiles] = useState([]);
   const [selected, setSelected] = useState([]);
+  const [sortBy, setSortBy] = useState('date'); // 'name' | 'date'
+  const [sortDir, setSortDir] = useState('desc'); // 'asc' | 'desc'
   const [uploadModal, setUploadModal] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [message, setMessage] = useState(null);
@@ -203,6 +205,29 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  // Clicking a sort key toggles its direction; switching keys resets to a
+  // sensible default (A→Z for name, newest-first for date).
+  const changeSort = (key) => {
+    if (sortBy === key) {
+      setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(key);
+      setSortDir(key === 'name' ? 'asc' : 'desc');
+    }
+  };
+
+  const sortedFiles = [...files].sort((a, b) => {
+    let cmp;
+    if (sortBy === 'name') {
+      cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
+    } else {
+      cmp = new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime();
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
+  const sortArrow = (key) => (sortBy === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
+
   return (
     <div style={styles.container}>
       {/* Status / notice banner */}
@@ -348,13 +373,29 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
       {files.length === 0 ? (
         <p style={styles.empty}>No files uploaded yet.</p>
       ) : (
-        <div
-          ref={fileListRef}
-          style={styles.fileList}
-          tabIndex={0}
-          onKeyDown={handleFileListKeyDown}
-        >
-          {files.map(file => (
+        <>
+          <div style={styles.sortBar}>
+            <span style={styles.sortLabel}>Sort by:</span>
+            <button
+              style={{ ...styles.sortBtn, ...(sortBy === 'name' ? styles.sortBtnActive : {}) }}
+              onClick={() => changeSort('name')}
+            >
+              Name{sortArrow('name')}
+            </button>
+            <button
+              style={{ ...styles.sortBtn, ...(sortBy === 'date' ? styles.sortBtnActive : {}) }}
+              onClick={() => changeSort('date')}
+            >
+              Date{sortArrow('date')}
+            </button>
+          </div>
+          <div
+            ref={fileListRef}
+            style={styles.fileList}
+            tabIndex={0}
+            onKeyDown={handleFileListKeyDown}
+          >
+          {sortedFiles.map(file => (
             <div
               key={file.name}
               style={{
@@ -416,7 +457,8 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
               />
             </div>
           ))}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );
@@ -550,6 +592,32 @@ const styles = {
     textAlign: 'center',
     color: '#aaa',
     padding: 30,
+  },
+  sortBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  sortLabel: {
+    fontSize: 13,
+    color: '#888',
+    fontWeight: 600,
+  },
+  sortBtn: {
+    padding: '5px 12px',
+    borderRadius: 6,
+    border: '1px solid #ddd',
+    background: 'white',
+    color: '#555',
+    cursor: 'pointer',
+    fontSize: 13,
+    fontWeight: 600,
+  },
+  sortBtnActive: {
+    borderColor: '#667eea',
+    background: '#f0f0ff',
+    color: '#667eea',
   },
   fileList: {
     display: 'flex',
