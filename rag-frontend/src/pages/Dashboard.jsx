@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMe, listChats, createChat as apiCreateChat, renameChat as apiRenameChat } from '../services/api';
+import { getMe, listChats, createChat as apiCreateChat, renameChat as apiRenameChat, addComment, listMyComments } from '../services/api';
 import chatIcon from '../assets/chatting.jpg';
 import ChatBox from '../components/ChatBox';
 import useLang from '../useLang';
@@ -227,6 +227,11 @@ export default function Dashboard() {
               <PricingPage currentPlan={user?.plan ?? 'free'} t={t} isRTL={isRTL} />
             </div>
           )}
+          {activeTab === 'feedback' && (
+            <div style={mobile.filesWrapper}>
+              <CommentsPanel t={t} isRTL={isRTL} />
+            </div>
+          )}
         </div>
 
         {/* Bottom Tab Bar */}
@@ -251,6 +256,13 @@ export default function Dashboard() {
           >
             <span style={mobile.tabIcon}>💎</span>
             <span style={mobile.tabLabel}>{t.plans}</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('feedback')}
+            style={{ ...mobile.tab, ...(activeTab === 'feedback' ? mobile.tabActive : {}) }}
+          >
+            <span style={mobile.tabIcon}>💬</span>
+            <span style={mobile.tabLabel}>{t.feedback}</span>
           </button>
         </div>
       </div>
@@ -380,6 +392,12 @@ export default function Dashboard() {
             >
               💎 {t.plansAndPricing}
             </button>
+            <button
+              onClick={() => setActiveTab('feedback')}
+              style={{ ...styles.navBtn, background: activeTab === 'feedback' ? 'rgba(255,255,255,0.2)' : 'transparent', textAlign: isRTL ? 'right' : 'left' }}
+            >
+              💬 {t.feedback}
+            </button>
           </nav>
         </div>
 
@@ -422,14 +440,136 @@ export default function Dashboard() {
             <PricingPage currentPlan={user?.plan ?? 'free'} t={t} isRTL={isRTL} />
           </div>
         )}
+        {activeTab === 'feedback' && (
+          <div style={styles.section}>
+            <h2 style={styles.sectionTitle}>{t.feedbackTitle}</h2>
+            <CommentsPanel t={t} isRTL={isRTL} />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
+function CommentsPanel({ t, isRTL }) {
+  const [content, setContent] = useState('');
+  const [comments, setComments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  const fetchComments = async () => {
+    try {
+      const res = await listMyComments();
+      setComments(res.data);
+    } catch {
+      // keep existing list on error
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchComments(); }, []);
+
+  const handleSend = async () => {
+    const trimmed = content.trim();
+    if (!trimmed) { setMessage({ type: 'error', text: t.commentEmptyError }); return; }
+    setSending(true);
+    setMessage(null);
+    try {
+      const res = await addComment(trimmed);
+      setComments(prev => [res.data, ...prev]);
+      setContent('');
+      setMessage({ type: 'success', text: t.commentSent });
+      setTimeout(() => setMessage(null), 3000);
+    } catch {
+      setMessage({ type: 'error', text: t.commentSendError });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div style={cp.wrapper}>
+      <div style={cp.composer}>
+        <p style={cp.desc}>{t.feedbackDesc}</p>
+        <textarea
+          value={content}
+          onChange={e => setContent(e.target.value)}
+          placeholder={t.commentPlaceholder}
+          maxLength={2000}
+          style={{ ...cp.textarea, textAlign: isRTL ? 'right' : 'left' }}
+        />
+        <div style={cp.composerActions}>
+          {message && (
+            <span style={{ fontSize: 13, fontWeight: 600, color: message.type === 'error' ? '#e53e3e' : '#38a169' }}>
+              {message.text}
+            </span>
+          )}
+          <button
+            onClick={handleSend}
+            disabled={sending || !content.trim()}
+            style={{ ...cp.sendBtn, opacity: (sending || !content.trim()) ? 0.6 : 1, cursor: (sending || !content.trim()) ? 'not-allowed' : 'pointer' }}
+          >
+            {sending ? t.sending : t.sendComment}
+          </button>
+        </div>
+      </div>
+
+      <h3 style={cp.listTitle}>{t.myComments}</h3>
+      {loading ? (
+        <p style={{ color: '#888', fontSize: 14 }}>{t.loading}</p>
+      ) : comments.length === 0 ? (
+        <p style={{ color: '#aaa', textAlign: 'center', padding: 24 }}>{t.noComments}</p>
+      ) : (
+        <div style={cp.list}>
+          {comments.map(c => (
+            <div key={c.id} style={cp.card}>
+              <div style={cp.cardHeader}>
+                <span style={{ ...cp.statusBadge, ...(c.status === 'addressed' ? cp.statusAddressed : cp.statusOpen) }}>
+                  {c.status === 'addressed' ? `✓ ${t.statusAddressed}` : t.statusOpen}
+                </span>
+                <span style={cp.date}>{new Date(c.created_at).toLocaleString()}</span>
+              </div>
+              <p style={cp.content}>{c.content}</p>
+              {c.owner_response && (
+                <div style={cp.response}>
+                  <span style={cp.responseLabel}>{t.ownerResponseLabel}</span>
+                  <p style={cp.responseText}>{c.owner_response}</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const cp = {
+  wrapper: { display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 720 },
+  composer: { background: 'white', borderRadius: 12, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', padding: 20, display: 'flex', flexDirection: 'column', gap: 12 },
+  desc: { margin: 0, fontSize: 14, color: '#666', lineHeight: 1.6 },
+  textarea: { width: '100%', minHeight: 110, padding: '12px 14px', borderRadius: 8, border: '1.5px solid #dde1e7', fontSize: 14, lineHeight: 1.6, resize: 'vertical', color: '#333', background: '#fafbfc', boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' },
+  composerActions: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 },
+  sendBtn: { padding: '10px 24px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', fontSize: 14, fontWeight: '600' },
+  listTitle: { margin: '4px 0 0 0', fontSize: 16, color: '#333' },
+  list: { display: 'flex', flexDirection: 'column', gap: 12 },
+  card: { background: 'white', borderRadius: 10, boxShadow: '0 1px 6px rgba(0,0,0,0.07)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 },
+  cardHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  statusBadge: { padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600 },
+  statusOpen: { background: '#feebc8', color: '#744210' },
+  statusAddressed: { background: '#c6f6d5', color: '#276749' },
+  date: { fontSize: 12, color: '#aaa' },
+  content: { margin: 0, fontSize: 14, color: '#333', lineHeight: 1.5, whiteSpace: 'pre-wrap' },
+  response: { borderLeft: '3px solid #667eea', background: '#f7f8ff', borderRadius: 6, padding: '8px 12px' },
+  responseLabel: { fontSize: 11, fontWeight: 700, color: '#667eea', textTransform: 'uppercase', letterSpacing: '0.04em' },
+  responseText: { margin: '4px 0 0 0', fontSize: 13, color: '#444', lineHeight: 1.5, whiteSpace: 'pre-wrap' },
+};
+
 function TokensPanel({ tokens, plan = 'free', t }) {
   const PLANS = [
-    { key: 'free',  tokens: 100,  unlimited: false },
+    { key: 'free',  tokens: 30,   unlimited: false },
     { key: 'basic', tokens: 500,  unlimited: false },
     { key: 'pro',   tokens: null, unlimited: true  },
   ];
@@ -484,7 +624,7 @@ function TokensPanel({ tokens, plan = 'free', t }) {
 }
 
 const PLANS = [
-  { key: 'free',  price: 0,  tokens: 100,  unlimited: false, reset: 'monthly', color: '#667eea', popular: false },
+  { key: 'free',  price: 0,  tokens: 30,   unlimited: false, reset: 'monthly', color: '#667eea', popular: false },
   { key: 'basic', price: 20, tokens: 500,  unlimited: false, reset: 'monthly', color: '#38b2ac', popular: true  },
   { key: 'pro',   price: 80, tokens: null, unlimited: true,  reset: null,      color: '#764ba2', popular: false },
 ];

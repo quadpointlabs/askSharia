@@ -228,6 +228,9 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
 
   const sortArrow = (key) => (sortBy === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
 
+  const fileStatus = (f) => f.status || (f.indexed ? 'indexed' : 'pending');
+  const indexedCount = files.filter(f => fileStatus(f) === 'indexed').length;
+
   return (
     <div style={styles.container}>
       {/* Status / notice banner */}
@@ -388,6 +391,9 @@ export default function FileManager({ onUploadingChange, apiOverrides }) {
             >
               Date{sortArrow('date')}
             </button>
+            <span style={styles.indexedCount}>
+              ✅ {indexedCount} of {files.length} indexed
+            </span>
           </div>
           <div
             ref={fileListRef}
@@ -618,6 +624,12 @@ const styles = {
     borderColor: '#667eea',
     background: '#f0f0ff',
     color: '#667eea',
+  },
+  indexedCount: {
+    marginLeft: 'auto',
+    fontSize: 13,
+    fontWeight: 600,
+    color: '#276749',
   },
   fileList: {
     display: 'flex',

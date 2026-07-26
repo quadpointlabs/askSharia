@@ -111,6 +111,22 @@ export const ownerGetSystemPrompt = () =>
 export const ownerSetSystemPrompt = (systemPrompt) =>
   ownerApi.put('/owner/system-prompt', { system_prompt: systemPrompt });
 
+// Comments / Feedback (user submits, owner addresses)
+export const addComment = (content) =>
+  api.post('/comments', { content });
+
+export const listMyComments = () =>
+  api.get('/comments');
+
+export const ownerListComments = () =>
+  ownerApi.get('/owner/comments');
+
+export const ownerRespondComment = (commentId, { status, ownerResponse } = {}) =>
+  ownerApi.put(`/owner/comments/${commentId}`, {
+    ...(status !== undefined ? { status } : {}),
+    ...(ownerResponse !== undefined ? { owner_response: ownerResponse } : {}),
+  });
+
 // Files
 export const uploadFile = (file) => {
   const formData = new FormData();

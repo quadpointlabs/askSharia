@@ -26,7 +26,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     mobile = Column(String, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
-    tokens = Column(Integer, default=100, nullable=False)
+    tokens = Column(Integer, default=30, nullable=False)
     plan = Column(String, default="free", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -87,6 +87,22 @@ class FileStatus(Base):
     __table_args__ = (
         UniqueConstraint("owner_id", "file_name", name="uix_file_status_owner_name"),
     )
+
+
+class Comment(Base):
+    """User feedback / comments addressed to the owner.
+
+    Users submit comments from their dashboard; owners view them and mark them
+    as addressed, optionally with a written response back to the user.
+    """
+    __tablename__ = "comments"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, nullable=False, index=True)
+    content = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="open")  # open | addressed
+    owner_response = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 try:

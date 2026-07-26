@@ -78,7 +78,7 @@ const translations = {
     upgradeTo: 'Upgrade to',
     planFeatures: {
       free: [
-        '100 tokens per month',
+        '30 tokens per month',
         'Tokens reset on the 1st of each month',
         'Access to all documents',
         'Multilingual support',
@@ -135,6 +135,30 @@ const translations = {
     savePrompt: 'Save Prompt',
     saving: 'Saving...',
     promptSaved: '✓ Saved',
+
+    // Feedback / Comments
+    feedback: 'Feedback',
+    feedbackNav: '💬 Feedback',
+    commentsNav: '💬 Comments',
+    feedbackTitle: '💬 Feedback',
+    ownerComments: '💬 User Feedback',
+    feedbackDesc: 'Have a question, suggestion, or issue? Send a comment to the owner and it will be addressed.',
+    commentPlaceholder: 'Write your comment for the owner...',
+    sendComment: 'Send Comment',
+    sending: 'Sending...',
+    commentSent: '✓ Your comment was sent',
+    myComments: 'My Comments',
+    noComments: 'No comments yet. Send your first one above.',
+    noCommentsOwner: 'No feedback from users yet.',
+    statusOpen: 'Open',
+    statusAddressed: 'Addressed',
+    ownerResponseLabel: 'Owner response',
+    respondPlaceholder: 'Write a response to the user (optional)...',
+    markAddressed: 'Mark as addressed',
+    markOpen: 'Reopen',
+    saveResponse: 'Save response',
+    commentEmptyError: 'Please write a comment first.',
+    commentSendError: '❌ Failed to send. Please try again.',
   },
 
   ar: {
@@ -215,7 +239,7 @@ const translations = {
     upgradeTo: 'ترقية إلى',
     planFeatures: {
       free: [
-        '100 رمز شهرياً',
+        '30 رمز شهرياً',
         'تُعاد الرموز في أول كل شهر',
         'الوصول إلى جميع المستندات',
         'دعم متعدد اللغات',
@@ -272,6 +296,30 @@ const translations = {
     savePrompt: 'حفظ الموجه',
     saving: 'جاري الحفظ...',
     promptSaved: '✓ تم الحفظ',
+
+    // Feedback / Comments
+    feedback: 'الملاحظات',
+    feedbackNav: '💬 الملاحظات',
+    commentsNav: '💬 التعليقات',
+    feedbackTitle: '💬 الملاحظات',
+    ownerComments: '💬 ملاحظات المستخدمين',
+    feedbackDesc: 'لديك سؤال أو اقتراح أو مشكلة؟ أرسل تعليقاً إلى المالك وسيتم النظر فيه.',
+    commentPlaceholder: 'اكتب تعليقك للمالك...',
+    sendComment: 'إرسال التعليق',
+    sending: 'جاري الإرسال...',
+    commentSent: '✓ تم إرسال تعليقك',
+    myComments: 'تعليقاتي',
+    noComments: 'لا توجد تعليقات بعد. أرسل أول تعليق من الأعلى.',
+    noCommentsOwner: 'لا توجد ملاحظات من المستخدمين بعد.',
+    statusOpen: 'مفتوح',
+    statusAddressed: 'تمت المعالجة',
+    ownerResponseLabel: 'رد المالك',
+    respondPlaceholder: 'اكتب رداً للمستخدم (اختياري)...',
+    markAddressed: 'وضع علامة تمت المعالجة',
+    markOpen: 'إعادة الفتح',
+    saveResponse: 'حفظ الرد',
+    commentEmptyError: 'يرجى كتابة تعليق أولاً.',
+    commentSendError: '❌ فشل الإرسال. حاول مرة أخرى.',
   },
 };
 

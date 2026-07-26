@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerReindexFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerListChats, ownerCreateChat, ownerGetMessages, ownerRenameChat, ownerGetReport, ownerGetSystemPrompt, ownerSetSystemPrompt, ownerListUserFiles } from '../services/api';
+import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerReindexFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerListChats, ownerCreateChat, ownerGetMessages, ownerRenameChat, ownerGetReport, ownerGetSystemPrompt, ownerSetSystemPrompt, ownerListUserFiles, ownerListComments, ownerRespondComment } from '../services/api';
 
 const OWNER_FILE_API = {
   listFiles: ownerListFiles,
@@ -51,6 +51,8 @@ export default function OwnerDashboard() {
   const [promptSaved, setPromptSaved] = useState(false);
   const [promptLoaded, setPromptLoaded] = useState(false);
   const [userFilesModal, setUserFilesModal] = useState(null);
+  const [comments, setComments] = useState([]);
+  const [loadingComments, setLoadingComments] = useState(false);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const { lang, setLang, t, isRTL } = useLang('ownerLang');
@@ -82,6 +84,7 @@ export default function OwnerDashboard() {
   useEffect(() => {
     if (activeTab === 'reports') fetchReport();
     if (activeTab === 'prompt' && !promptLoaded) fetchSystemPrompt();
+    if (activeTab === 'comments') fetchComments();
   }, [activeTab]);
 
   const fetchUser = async () => {
@@ -171,6 +174,27 @@ export default function OwnerDashboard() {
       // silently fail
     } finally {
       setLoadingReport(false);
+    }
+  };
+
+  const fetchComments = async () => {
+    setLoadingComments(true);
+    try {
+      const res = await ownerListComments();
+      setComments(res.data);
+    } catch {
+      // keep existing list on error
+    } finally {
+      setLoadingComments(false);
+    }
+  };
+
+  const handleRespondComment = async (commentId, { status, ownerResponse } = {}) => {
+    try {
+      const res = await ownerRespondComment(commentId, { status, ownerResponse });
+      setComments(prev => prev.map(c => c.id === commentId ? { ...c, ...res.data } : c));
+    } catch {
+      // silently fail — UI reverts on next fetch
     }
   };
 
@@ -605,6 +629,21 @@ export default function OwnerDashboard() {
               )}
             </div>
           )}
+          {activeTab === 'comments' && (
+            <div style={mobile.filesWrapper}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ fontWeight: 'bold', fontSize: 15, color: '#134e5e' }}>{t.ownerComments}</span>
+                <button onClick={fetchComments} style={ownerUserStyles.refreshBtn}>{t.refresh}</button>
+              </div>
+              <OwnerCommentsPanel
+                comments={comments}
+                loading={loadingComments}
+                onRespond={handleRespondComment}
+                t={t}
+                isRTL={isRTL}
+              />
+            </div>
+          )}
         </div>
 
         {/* Bottom Tab Bar */}
@@ -643,6 +682,13 @@ export default function OwnerDashboard() {
           >
             <span style={mobile.tabIcon}>📝</span>
             <span style={mobile.tabLabel}>{t.systemPromptNav}</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('comments')}
+            style={{ ...mobile.tab, ...(activeTab === 'comments' ? mobile.tabActive : {}) }}
+          >
+            <span style={mobile.tabIcon}>💬</span>
+            <span style={mobile.tabLabel}>{t.feedback}</span>
           </button>
         </div>
       </div>
@@ -781,6 +827,12 @@ export default function OwnerDashboard() {
               style={{ ...styles.navBtn, background: activeTab === 'prompt' ? 'rgba(255,255,255,0.2)' : 'transparent', textAlign: isRTL ? 'right' : 'left' }}
             >
               {t.systemPromptNav}
+            </button>
+            <button
+              onClick={() => setActiveTab('comments')}
+              style={{ ...styles.navBtn, background: activeTab === 'comments' ? 'rgba(255,255,255,0.2)' : 'transparent', textAlign: isRTL ? 'right' : 'left' }}
+            >
+              {t.commentsNav}
             </button>
           </nav>
         </div>
@@ -1074,10 +1126,104 @@ export default function OwnerDashboard() {
             )}
           </div>
         )}
+
+        {activeTab === 'comments' && (
+          <div style={styles.section}>
+            <div style={ownerUserStyles.sectionHeader}>
+              <h2 style={styles.sectionTitle}>{t.ownerComments}</h2>
+              <button onClick={fetchComments} style={ownerUserStyles.refreshBtn}>{t.refresh}</button>
+            </div>
+            <OwnerCommentsPanel
+              comments={comments}
+              loading={loadingComments}
+              onRespond={handleRespondComment}
+              t={t}
+              isRTL={isRTL}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+function OwnerCommentsPanel({ comments, loading, onRespond, t, isRTL }) {
+  const [drafts, setDrafts] = useState({});
+
+  const setDraft = (id, value) => setDrafts(prev => ({ ...prev, [id]: value }));
+
+  if (loading) return <p style={{ color: '#888', fontSize: 14 }}>{t.loading}</p>;
+  if (comments.length === 0) return <p style={{ color: '#aaa', textAlign: 'center', padding: 24 }}>{t.noCommentsOwner}</p>;
+
+  return (
+    <div style={ocp.list}>
+      {comments.map(c => {
+        const draft = drafts[c.id] ?? c.owner_response ?? '';
+        return (
+          <div key={c.id} style={ocp.card}>
+            <div style={ocp.header}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={ocp.avatar}>{c.user_name?.charAt(0)?.toUpperCase() ?? '?'}</div>
+                <div>
+                  <div style={{ fontWeight: 'bold', fontSize: 14, color: '#333' }}>{c.user_name}</div>
+                  <div style={{ fontSize: 12, color: '#aaa' }}>{c.user_email}</div>
+                </div>
+              </div>
+              <span style={{ ...ocp.statusBadge, ...(c.status === 'addressed' ? ocp.statusAddressed : ocp.statusOpen) }}>
+                {c.status === 'addressed' ? `✓ ${t.statusAddressed}` : t.statusOpen}
+              </span>
+            </div>
+            <p style={ocp.content}>{c.content}</p>
+            <div style={ocp.date}>{new Date(c.created_at).toLocaleString()}</div>
+            <textarea
+              value={draft}
+              onChange={e => setDraft(c.id, e.target.value)}
+              placeholder={t.respondPlaceholder}
+              style={{ ...ocp.textarea, textAlign: isRTL ? 'right' : 'left' }}
+            />
+            <div style={ocp.actions}>
+              <button
+                onClick={() => onRespond(c.id, { ownerResponse: draft })}
+                style={{ ...ownerUserStyles.actionBtn, background: '#667eea' }}
+              >
+                {t.saveResponse}
+              </button>
+              {c.status === 'addressed' ? (
+                <button
+                  onClick={() => onRespond(c.id, { status: 'open' })}
+                  style={{ ...ownerUserStyles.actionBtn, background: '#a0aec0' }}
+                >
+                  {t.markOpen}
+                </button>
+              ) : (
+                <button
+                  onClick={() => onRespond(c.id, { status: 'addressed', ownerResponse: draft })}
+                  style={{ ...ownerUserStyles.actionBtn, background: '#48bb78' }}
+                >
+                  {t.markAddressed}
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const ocp = {
+  list: { display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 760 },
+  card: { background: 'white', borderRadius: 10, boxShadow: '0 1px 6px rgba(0,0,0,0.08)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  avatar: { width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg, #134e5e, #71b280)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: 13, flexShrink: 0 },
+  statusBadge: { padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600 },
+  statusOpen: { background: '#feebc8', color: '#744210' },
+  statusAddressed: { background: '#c6f6d5', color: '#276749' },
+  content: { margin: 0, fontSize: 14, color: '#333', lineHeight: 1.5, whiteSpace: 'pre-wrap', background: '#f9fafb', borderRadius: 8, padding: '10px 12px' },
+  date: { fontSize: 12, color: '#aaa' },
+  textarea: { width: '100%', minHeight: 70, padding: '10px 12px', borderRadius: 8, border: '1.5px solid #dde1e7', fontSize: 13, lineHeight: 1.5, resize: 'vertical', color: '#333', background: '#fafbfc', boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' },
+  actions: { display: 'flex', gap: 8, justifyContent: 'flex-end' },
+};
 
 const PLAN_COLORS = {
   free:  { background: '#edf2f7', color: '#4a5568' },

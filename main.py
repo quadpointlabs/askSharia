@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from database import get_db, User, Admin, Owner, ChatSession, ChatMessage, FileStatus, SessionLocal, engine
+from database import get_db, User, Admin, Owner, ChatSession, ChatMessage, FileStatus, Comment, SessionLocal, engine
 from auth import hash_password, verify_password, create_access_token, get_current_user, get_current_owner, get_current_admin
 from indexer import delete_file_vectors, index_single_file, get_indexed_filenames, SUPPORTED_EXTENSIONS
 
@@ -1225,6 +1225,97 @@ def owner_reports(
         },
         "users": user_report,
     }
+
+
+# ── Comments / Feedback ──────────────────────────────────────
+class CommentCreateRequest(BaseModel):
+    content: str
+
+class CommentRespondRequest(BaseModel):
+    status: Optional[str] = None          # "open" | "addressed"
+    owner_response: Optional[str] = None
+
+
+def _serialize_comment(c: Comment) -> dict:
+    return {
+        "id": c.id,
+        "content": c.content,
+        "status": c.status,
+        "owner_response": c.owner_response,
+        "created_at": c.created_at,
+        "updated_at": c.updated_at,
+    }
+
+
+@app.post("/comments", status_code=201)
+def create_comment(
+    req: CommentCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    content = req.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Comment cannot be empty")
+    if len(content) > 2000:
+        raise HTTPException(status_code=400, detail="Comment is too long (max 2000 characters)")
+    comment = Comment(user_id=current_user.id, content=content)
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return _serialize_comment(comment)
+
+
+@app.get("/comments")
+def list_my_comments(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    comments = (
+        db.query(Comment)
+        .filter(Comment.user_id == current_user.id)
+        .order_by(Comment.created_at.desc())
+        .all()
+    )
+    return [_serialize_comment(c) for c in comments]
+
+
+@app.get("/owner/comments")
+def owner_list_comments(
+    current_owner: Owner = Depends(get_current_owner),
+    db: Session = Depends(get_db),
+):
+    comments = db.query(Comment).order_by(Comment.created_at.desc()).all()
+    users = {u.id: u for u in db.query(User).all()}
+    result = []
+    for c in comments:
+        u = users.get(c.user_id)
+        result.append({
+            **_serialize_comment(c),
+            "user_name": u.name if u else "Unknown",
+            "user_email": u.email if u else None,
+        })
+    return result
+
+
+@app.put("/owner/comments/{comment_id}")
+def owner_respond_comment(
+    comment_id: str,
+    req: CommentRespondRequest,
+    current_owner: Owner = Depends(get_current_owner),
+    db: Session = Depends(get_db),
+):
+    comment = db.query(Comment).filter(Comment.id == comment_id).first()
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    if req.status is not None:
+        if req.status not in ("open", "addressed"):
+            raise HTTPException(status_code=400, detail="Invalid status")
+        comment.status = req.status
+    if req.owner_response is not None:
+        comment.owner_response = req.owner_response.strip() or None
+    db.commit()
+    db.refresh(comment)
+    return _serialize_comment(comment)
 
 
 @app.get("/health")
