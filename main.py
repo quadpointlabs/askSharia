@@ -87,7 +87,13 @@ try:
     client = QdrantClient(url=os.getenv("QDRANT_URL", "localhost"), port=6333)
     aclient = AsyncQdrantClient(url=os.getenv("QDRANT_URL", "localhost"), port=6333)
     embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-large")
-    llm = Anthropic(model="claude-sonnet-4-5", api_key=os.environ["ANTHROPIC_API_KEY"])
+    # max_tokens must be set explicitly — llama-index defaults it to 512,
+    # which cuts long answers off mid-sentence.
+    llm = Anthropic(
+        model="claude-sonnet-4-5",
+        api_key=os.environ["ANTHROPIC_API_KEY"],
+        max_tokens=8192,
+    )
     vector_store = QdrantVectorStore(client=client, aclient=aclient, collection_name=COLLECTION_NAME)
     index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embed_model)
 except KeyError as e:
