@@ -14,6 +14,7 @@ import re
 import secrets
 import shutil
 import smtplib
+from llama_index.core import Settings
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, BackgroundTasks
@@ -92,8 +93,11 @@ try:
     llm = Anthropic(
         model="claude-sonnet-4-5",
         api_key=os.environ["ANTHROPIC_API_KEY"],
-        max_tokens=8192,
+        max_tokens=4096,
     )
+    Settings.llm = llm
+    Settings.context_window = 200000      # ← set it here instead
+    Settings.num_output = 4096
     vector_store = QdrantVectorStore(client=client, aclient=aclient, collection_name=COLLECTION_NAME)
     index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embed_model)
 except KeyError as e:
