@@ -59,9 +59,6 @@ export default function Home() {
           Don't have an account?{' '}
           <Link to="/register" style={styles.inlineLink}>Register</Link>
         </p>
-        <p style={styles.ownerText}>
-          <Link to="/owner/login" style={styles.ownerLink}>Owner login</Link>
-        </p>
       </div>
     </div>
   );
@@ -132,14 +129,5 @@ const styles = {
     color: '#667eea',
     textDecoration: 'none',
     fontWeight: 'bold',
-  },
-  ownerText: {
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  ownerLink: {
-    color: '#bbb',
-    textDecoration: 'none',
-    fontSize: 12,
   },
 };

@@ -319,14 +319,15 @@ def owner_get_me(current_owner: Owner = Depends(get_current_owner)):
 
 # ── Chat ─────────────────────────────────────────────────────
 _DEFAULT_SYSTEM_PROMPT = (
-    "You are a helpful assistant. Answer ONLY using the provided documents. "
-    "Each retrieved passage is labeled with its source file. "
-    "If multiple passages come from the same file, use the same citation number for that file. "
-    "Cite inline immediately after each statement using [1], [2] format, where the number corresponds to the source file. "
-    "If the answer is not in the documents, say: "
+    "أنت مساعد مفيد. أجب فقط باستخدام الوثائق المُقدَّمة. "
+    "كل مقطع مُسترجَع مُعنون باسم الملف المصدر. "
+    "إذا وردت عدة مقاطع من الملف نفسه، استخدم رقم الاستشهاد نفسه لذلك الملف. "
+    "استشهد داخل النص مباشرة بعد كل عبارة بالصيغة [1]، [2]، بحيث يوافق الرقم الملف المصدر. "
+    "إذا لم تكن الإجابة موجودة في الوثائق، فقل: "
     "English: 'This information is not available in the provided documents.' "
     "Arabic: 'هذه المعلومات غير متوفرة في الوثائق المتاحة.' "
     "Hebrew: 'מידע זה אינו זמין במסמכים שסופקו.' "
+    "أجب دائمًا بنفس لغة المستخدم. "
     "Always respond in the same language the user used."
 )
 _system_prompt: str = _DEFAULT_SYSTEM_PROMPT
