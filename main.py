@@ -18,7 +18,7 @@ from llama_index.core import Settings
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 from database import get_db, User, Admin, Owner, ChatSession, ChatMessage, FileStatus, Comment, SessionLocal, engine
 from auth import hash_password, verify_password, create_access_token, get_current_user, get_current_owner, get_current_admin
 from indexer import delete_file_vectors, index_single_file, get_indexed_filenames, SUPPORTED_EXTENSIONS
+import whatsapp
 
 from llama_index.core import VectorStoreIndex
 from llama_index.core.memory import ChatMemoryBuffer
@@ -392,6 +393,55 @@ def compute_question_cost(question: str) -> int:
     return max(1, min(cost, _TOKEN_MAX_COST))
 
 
+def answer_question(question: str, session_key: str, db: Session):
+    """Run a question through the RAG chat engine for session_key. Returns (answer, sources)."""
+    # All actors (owners and users) query the shared file pool plus any legacy per-owner files
+    owner_ids = [str(o.id) for o in db.query(Owner).filter(Owner.enabled == True).all()]
+    if SHARED_OWNER_ID not in owner_ids:
+        owner_ids.append(SHARED_OWNER_ID)
+    engine = get_chat_engine(session_key, owner_ids or [SHARED_OWNER_ID])
+    response = engine.chat(question)
+
+    # Step 1: Build file → correct reference number mapping
+    # Use the LOWEST source_number for each unique file
+    file_to_info = {}
+    for node in response.source_nodes:
+        filename = node.metadata.get("file_name", "unknown")
+        number = node.metadata.get("source_number", 1)
+        if filename not in file_to_info:
+            file_to_info[filename] = {
+                "number": number,
+                "file": filename,
+                "score": round(node.score, 3) if node.score else None,
+            }
+        else:
+            # Keep lowest number for this file
+            if number < file_to_info[filename]["number"]:
+                file_to_info[filename]["number"] = number
+
+    # Step 2: Build reverse map — wrong_number → correct_number
+    # So [2] and [3] from same file get replaced with [1]
+    wrong_to_correct = {}
+    for node in response.source_nodes:
+        filename = node.metadata.get("file_name", "unknown")
+        wrong_num = node.metadata.get("source_number")
+        correct_num = file_to_info[filename]["number"]
+        if wrong_num and wrong_num != correct_num:
+            wrong_to_correct[wrong_num] = correct_num
+
+    # Step 3: Fix inline citations in answer text
+    answer = str(response)
+    for wrong_num, correct_num in wrong_to_correct.items():
+        answer = answer.replace(f"[{wrong_num}]", f"[{correct_num}]")
+
+    # Step 4: Remove any trailing 📎 line
+    if "📎" in answer:
+        answer = answer[:answer.rfind("📎")].strip()
+
+    # Step 5: Build deduplicated sources list
+    return answer, list(file_to_info.values())
+
+
 @app.post("/chat")
 def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     is_owner = isinstance(current_user, Owner)
@@ -402,51 +452,7 @@ def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: S
 
     try:
         session_key = req.chat_id if req.chat_id else str(current_user.id)
-        # All actors (owners and users) query the shared file pool plus any legacy per-owner files
-        owner_ids = [str(o.id) for o in db.query(Owner).filter(Owner.enabled == True).all()]
-        if SHARED_OWNER_ID not in owner_ids:
-            owner_ids.append(SHARED_OWNER_ID)
-        engine = get_chat_engine(session_key, owner_ids or [SHARED_OWNER_ID])
-        response = engine.chat(req.question)
-
-        # Step 1: Build file → correct reference number mapping
-        # Use the LOWEST source_number for each unique file
-        file_to_info = {}
-        for node in response.source_nodes:
-            filename = node.metadata.get("file_name", "unknown")
-            number = node.metadata.get("source_number", 1)
-            if filename not in file_to_info:
-                file_to_info[filename] = {
-                    "number": number,
-                    "file": filename,
-                    "score": round(node.score, 3) if node.score else None,
-                }
-            else:
-                # Keep lowest number for this file
-                if number < file_to_info[filename]["number"]:
-                    file_to_info[filename]["number"] = number
-
-        # Step 2: Build reverse map — wrong_number → correct_number
-        # So [2] and [3] from same file get replaced with [1]
-        wrong_to_correct = {}
-        for node in response.source_nodes:
-            filename = node.metadata.get("file_name", "unknown")
-            wrong_num = node.metadata.get("source_number")
-            correct_num = file_to_info[filename]["number"]
-            if wrong_num and wrong_num != correct_num:
-                wrong_to_correct[wrong_num] = correct_num
-
-        # Step 3: Fix inline citations in answer text
-        answer = str(response)
-        for wrong_num, correct_num in wrong_to_correct.items():
-            answer = answer.replace(f"[{wrong_num}]", f"[{correct_num}]")
-
-        # Step 4: Remove any trailing 📎 line
-        if "📎" in answer:
-            answer = answer[:answer.rfind("📎")].strip()
-
-        # Step 5: Build deduplicated sources list
-        sources = list(file_to_info.values())
+        answer, sources = answer_question(req.question, session_key, db)
 
         # Deduct tokens for regular users after a successful response.
         # Cost scales with question complexity (min 1).
@@ -484,6 +490,78 @@ def chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: S
     except Exception:
         logger.exception("Chat error for user %s", current_user.id)
         raise HTTPException(status_code=500, detail="Chat service error. Please try again.")
+
+
+# ── WhatsApp (Twilio) ────────────────────────────────────────
+WHATSAPP_CHAT_NAME = "WhatsApp"
+
+
+@app.post("/whatsapp/webhook")
+async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Incoming WhatsApp message from Twilio.
+
+    Answers immediately with empty TwiML and sends the reply from a background task via the
+    Twilio API — RAG answers can exceed Twilio's 15 s webhook timeout.
+    """
+    if not whatsapp.is_configured():
+        raise HTTPException(status_code=503, detail="WhatsApp is not configured")
+    form = dict(await request.form())
+    if not whatsapp.is_valid_request(str(request.url), form, request.headers.get("X-Twilio-Signature")):
+        logger.warning("Rejected WhatsApp webhook with invalid Twilio signature")
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
+    sender = form.get("From", "")
+    question = (form.get("Body") or "").strip()
+    if sender and whatsapp.is_new_message(form.get("MessageSid", "")):
+        if question:
+            background_tasks.add_task(_handle_whatsapp_message, sender, question)
+        else:
+            background_tasks.add_task(whatsapp.send_message, sender, whatsapp.MSG_TEXT_ONLY)
+    return Response(content=whatsapp.EMPTY_TWIML, media_type="application/xml")
+
+
+def _handle_whatsapp_message(sender: str, question: str) -> None:
+    db = SessionLocal()
+    try:
+        users = db.query(User).filter(User.mobile.isnot(None), User.mobile != "").all()
+        user = whatsapp.match_user(users, sender)
+        if not user:
+            whatsapp.send_message(sender, whatsapp.MSG_NOT_REGISTERED)
+            return
+        if not user.enabled:
+            whatsapp.send_message(sender, whatsapp.MSG_DISABLED)
+            return
+        if user.tokens <= 0:
+            whatsapp.send_message(sender, whatsapp.MSG_NO_TOKENS)
+            return
+
+        # One persistent chat per user, so the conversation also shows in the web dashboard
+        chat_id = f"whatsapp-{user.id}"
+        if not db.query(ChatSession).filter(ChatSession.id == chat_id).first():
+            db.add(ChatSession(id=chat_id, actor_id=user.id, actor_type="user", name=WHATSAPP_CHAT_NAME))
+            db.commit()
+
+        answer, sources = answer_question(question, chat_id, db)
+
+        user.tokens = max(0, user.tokens - compute_question_cost(question))
+        db.add(ChatMessage(session_id=chat_id, role="user", content=question))
+        db.add(ChatMessage(
+            session_id=chat_id,
+            role="bot",
+            content=answer,
+            sources=json.dumps(sources) if sources else None,
+        ))
+        db.commit()
+
+        whatsapp.send_message(sender, whatsapp.format_answer(answer, sources))
+    except Exception:
+        logger.exception("WhatsApp chat error for %s", sender)
+        try:
+            whatsapp.send_message(sender, whatsapp.MSG_ERROR)
+        except Exception:
+            logger.exception("Failed to send WhatsApp error reply to %s", sender)
+    finally:
+        db.close()
 
 
 # ── File indexing status ──────────────────────────────────────

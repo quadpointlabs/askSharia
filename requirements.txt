@@ -10,6 +10,7 @@ python-dotenv
 python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
+twilio
 sentence-transformers
 pypdf
 docx2txt
