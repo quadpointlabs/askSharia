@@ -512,15 +512,20 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
 
     sender = form.get("From", "")
     question = (form.get("Body") or "").strip()
+    voice_url = whatsapp.voice_media_url(form)
     if sender and whatsapp.is_new_message(form.get("MessageSid", "")):
         if question:
             background_tasks.add_task(_handle_whatsapp_message, sender, question)
+        elif voice_url:
+            background_tasks.add_task(_handle_whatsapp_message, sender, None, voice_url)
         else:
             background_tasks.add_task(whatsapp.send_message, sender, whatsapp.MSG_TEXT_ONLY)
     return Response(content=whatsapp.EMPTY_TWIML, media_type="application/xml")
 
 
-def _handle_whatsapp_message(sender: str, question: str) -> None:
+def _handle_whatsapp_message(sender: str, question: Optional[str], voice_url: Optional[str] = None) -> None:
+    """Answer a WhatsApp question — typed, or a voice note (voice_url) transcribed to text first.
+    The reply is always text."""
     db = SessionLocal()
     try:
         users = db.query(User).filter(User.mobile.isnot(None), User.mobile != "").all()
@@ -534,6 +539,19 @@ def _handle_whatsapp_message(sender: str, question: str) -> None:
         if user.tokens <= 0:
             whatsapp.send_message(sender, whatsapp.MSG_NO_TOKENS)
             return
+
+        # Transcribe only after the checks above, so unregistered senders can't spend our CPU
+        if voice_url:
+            try:
+                question = whatsapp.transcribe(whatsapp.download_media(voice_url))
+            except whatsapp.VoiceTooLong:
+                whatsapp.send_message(
+                    sender, whatsapp.MSG_VOICE_TOO_LONG.format(minutes=whatsapp.MAX_VOICE_SECONDS // 60)
+                )
+                return
+            if not question:
+                whatsapp.send_message(sender, whatsapp.MSG_VOICE_UNCLEAR)
+                return
 
         # One persistent chat per user, so the conversation also shows in the web dashboard
         chat_id = f"whatsapp-{user.id}"
@@ -553,7 +571,7 @@ def _handle_whatsapp_message(sender: str, question: str) -> None:
         ))
         db.commit()
 
-        whatsapp.send_message(sender, whatsapp.format_answer(answer, sources))
+        whatsapp.send_message(sender, whatsapp.format_answer(answer, sources, transcript=question if voice_url else None))
     except Exception:
         logger.exception("WhatsApp chat error for %s", sender)
         try:
