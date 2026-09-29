@@ -274,7 +274,7 @@ export default function Register() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [countryCode, setCountryCode] = useState('+966');
+  const [countryCode, setCountryCode] = useState('+972');
   const [mobileNumber, setMobileNumber] = useState('');
 
   const [step, setStep] = useState('form'); // 'form' | 'verify'
