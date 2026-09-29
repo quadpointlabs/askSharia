@@ -384,7 +384,6 @@ export default function OwnerDashboard() {
     return (
       <div style={mobile.container} dir={isRTL ? 'rtl' : 'ltr'}>
         {userFilesModalEl}
-      {editUserModalEl}
         {editUserModalEl}
         {/* Top Header */}
         <div style={mobile.header}>
@@ -774,6 +773,7 @@ export default function OwnerDashboard() {
   return (
     <div style={styles.container} dir={isRTL ? 'rtl' : 'ltr'}>
       {userFilesModalEl}
+      {editUserModalEl}
       {/* Sidebar */}
       <div style={styles.sidebar}>
         <div>
