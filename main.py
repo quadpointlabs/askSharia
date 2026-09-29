@@ -1014,6 +1014,7 @@ def owner_list_users(current_owner: Owner = Depends(get_current_owner), db: Sess
             "id": u.id,
             "name": u.name,
             "email": u.email,
+            "mobile": u.mobile,
             "enabled": u.enabled,
             "tokens": u.tokens,
             "plan": getattr(u, "plan", "free"),
@@ -1021,6 +1022,41 @@ def owner_list_users(current_owner: Owner = Depends(get_current_owner), db: Sess
         }
         for u in users
     ]
+
+
+class OwnerUserUpdateRequest(BaseModel):
+    name: str
+    email: EmailStr
+    mobile: Optional[str] = None
+
+
+@app.put("/owner/users/{user_id}")
+def owner_update_user(
+    user_id: str,
+    req: OwnerUserUpdateRequest,
+    current_owner: Owner = Depends(get_current_owner),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    name = req.name.strip()
+    email = req.email.lower()
+    mobile = (req.mobile or "").strip() or None
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    if db.query(User).filter(User.email == email, User.id != user_id).first():
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    # Mobile must stay unique under the same matching WhatsApp uses to find the sender's account
+    if mobile:
+        others = db.query(User).filter(User.id != user_id, User.mobile.isnot(None), User.mobile != "").all()
+        if whatsapp.match_user(others, mobile):
+            raise HTTPException(status_code=409, detail="An account with this mobile number already exists")
+    user.name = name
+    user.email = email
+    user.mobile = mobile
+    db.commit()
+    return {"id": user.id, "name": user.name, "email": user.email, "mobile": user.mobile}
 
 
 @app.put("/owner/users/{user_id}/status")

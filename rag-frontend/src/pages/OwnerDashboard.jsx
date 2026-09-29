@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerReindexFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerListChats, ownerCreateChat, ownerGetMessages, ownerRenameChat, ownerGetReport, ownerGetSystemPrompt, ownerSetSystemPrompt, ownerListUserFiles, ownerListComments, ownerRespondComment } from '../services/api';
+import { ownerGetMe, ownerListUsers, ownerSetUserStatus, ownerUpdateUser, ownerDeleteUser, ownerListFiles, ownerUploadFile, ownerDeleteFile, ownerDownloadFile, ownerReindexFile, ownerSendMessage, ownerTopUpTokens, ownerSetUserPlan, ownerListChats, ownerCreateChat, ownerGetMessages, ownerRenameChat, ownerGetReport, ownerGetSystemPrompt, ownerSetSystemPrompt, ownerListUserFiles, ownerListComments, ownerRespondComment } from '../services/api';
 
 const OWNER_FILE_API = {
   listFiles: ownerListFiles,
@@ -51,6 +51,7 @@ export default function OwnerDashboard() {
   const [promptSaved, setPromptSaved] = useState(false);
   const [promptLoaded, setPromptLoaded] = useState(false);
   const [userFilesModal, setUserFilesModal] = useState(null);
+  const [editUserModal, setEditUserModal] = useState(null);
   const [comments, setComments] = useState([]);
   const [loadingComments, setLoadingComments] = useState(false);
   const isMobile = useIsMobile();
@@ -218,6 +219,23 @@ export default function OwnerDashboard() {
     }
   };
 
+  const handleEditUser = (u) => {
+    setEditUserModal({ id: u.id, name: u.name || '', email: u.email || '', mobile: u.mobile || '', saving: false, error: '' });
+  };
+
+  const handleSaveUser = async () => {
+    const { id, name, email, mobile } = editUserModal;
+    setEditUserModal(prev => ({ ...prev, saving: true, error: '' }));
+    try {
+      const res = await ownerUpdateUser(id, { name, email, mobile });
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, ...res.data } : u));
+      setEditUserModal(null);
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      setEditUserModal(prev => ({ ...prev, saving: false, error: typeof detail === 'string' ? detail : t.saveFailed }));
+    }
+  };
+
   const handleSavePrompt = async () => {
     if (!promptDraft.trim()) return;
     setPromptSaving(true);
@@ -314,10 +332,60 @@ export default function OwnerDashboard() {
     </div>
   );
 
+  const editUserField = (key, label, type = 'text', hint) => (
+    <label style={{ display: 'block', marginBottom: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 'bold', color: '#134e5e', marginBottom: 4 }}>{label}</div>
+      <input
+        type={type}
+        value={editUserModal[key]}
+        onChange={e => setEditUserModal(prev => ({ ...prev, [key]: e.target.value }))}
+        disabled={editUserModal.saving}
+        dir={type === 'text' ? 'auto' : 'ltr'}
+        style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}
+      />
+      {hint && <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>{hint}</div>}
+    </label>
+  );
+
+  const editUserModalEl = editUserModal && (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+      <div style={{ background: 'white', borderRadius: 14, padding: '24px 28px', width: '90%', maxWidth: 440, boxShadow: '0 8px 40px rgba(0,0,0,0.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ fontWeight: 'bold', fontSize: 16, color: '#134e5e' }}>{t.editUser}</div>
+          <button onClick={() => setEditUserModal(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#aaa', lineHeight: 1 }}>✕</button>
+        </div>
+        {editUserField('name', t.name)}
+        {editUserField('email', t.email, 'email')}
+        {editUserField('mobile', t.mobile, 'tel', t.mobileHint)}
+        {editUserModal.error && (
+          <p style={{ color: '#e53e3e', fontSize: 13, margin: '0 0 12px' }}>{editUserModal.error}</p>
+        )}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            onClick={() => setEditUserModal(null)}
+            disabled={editUserModal.saving}
+            style={{ ...ownerUserStyles.actionBtn, background: '#a0aec0' }}
+          >
+            {t.cancel}
+          </button>
+          <button
+            onClick={handleSaveUser}
+            disabled={editUserModal.saving || !editUserModal.name.trim() || !editUserModal.email.trim()}
+            style={{ ...ownerUserStyles.actionBtn, background: '#48bb78', opacity: editUserModal.saving ? 0.6 : 1 }}
+          >
+            {editUserModal.saving ? t.saving : t.save}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (isMobile) {
     return (
       <div style={mobile.container} dir={isRTL ? 'rtl' : 'ltr'}>
         {userFilesModalEl}
+      {editUserModalEl}
+        {editUserModalEl}
         {/* Top Header */}
         <div style={mobile.header}>
           <div style={mobile.headerLeft}>
@@ -451,6 +519,7 @@ export default function OwnerDashboard() {
                     <div>
                       <div style={{ fontWeight: 'bold', fontSize: 14 }}>{u.name}</div>
                       <div style={{ fontSize: 12, color: '#888' }}>{u.email}</div>
+                      {u.mobile && <div style={{ fontSize: 12, color: '#888' }} dir="ltr">{u.mobile}</div>}
                     </div>
                     <span style={{
                       ...ownerUserStyles.badge,
@@ -513,6 +582,12 @@ export default function OwnerDashboard() {
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => handleEditUser(u)}
+                      style={{ ...ownerUserStyles.actionBtn, flex: 1, background: '#667eea' }}
+                    >
+                      {t.edit}
+                    </button>
                     <button
                       onClick={() => handleToggleUser(u.id, u.enabled !== false)}
                       disabled={togglingId === u.id}
@@ -908,7 +983,10 @@ export default function OwnerDashboard() {
                             <span>{u.name}</span>
                           </div>
                         </td>
-                        <td style={ownerUserStyles.td}>{u.email}</td>
+                        <td style={ownerUserStyles.td}>
+                          <div>{u.email}</div>
+                          {u.mobile && <div style={{ fontSize: 12, color: '#888' }} dir="ltr">{u.mobile}</div>}
+                        </td>
                         <td style={ownerUserStyles.td}>
                           <span style={{
                             ...ownerUserStyles.badge,
@@ -973,6 +1051,12 @@ export default function OwnerDashboard() {
                         </td>
                         <td style={ownerUserStyles.td}>
                           <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              onClick={() => handleEditUser(u)}
+                              style={{ ...ownerUserStyles.actionBtn, background: '#667eea' }}
+                            >
+                              {t.edit}
+                            </button>
                             <button
                               onClick={() => handleToggleUser(u.id, u.enabled !== false)}
                               disabled={togglingId === u.id}

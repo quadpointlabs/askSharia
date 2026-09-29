@@ -51,6 +51,9 @@ export const ownerListUsers = () =>
 export const ownerSetUserStatus = (userId, enabled) =>
   ownerApi.put(`/owner/users/${userId}/status`, { enabled });
 
+export const ownerUpdateUser = (userId, { name, email, mobile }) =>
+  ownerApi.put(`/owner/users/${userId}`, { name, email, mobile });
+
 export const ownerDeleteUser = (userId) =>
   ownerApi.delete(`/owner/users/${userId}`);
 
